@@ -19,6 +19,7 @@ run "signature (19 checks)"      node tests/signature.test.mjs
 run "workflow-auth (22 checks)"  node tests/workflow-auth.test.mjs
 run "noaa live (17 checks)"      node tests/noaa.test.mjs
 run "swdi live (23 checks)"      node tests/swdi.test.mjs
+run "geo live (31 checks)"       node tests/geo.test.mjs
 run "published keys"             python tests/verify_public_keys.py
 
 printf "%-38s " "tenant isolation (live GHL)"
