@@ -45,6 +45,21 @@ else
   echo "SKIP (playwright not resolvable at the global path)"
 fi
 
+# The full offline cycle: capture with no connection, reconnect, drain to empty. Needs
+# a running dev server with the demo sink enabled, so it SKIPS loudly when one is not
+# up rather than failing a clone.
+printf "%-38s " "offline drain e2e (10 checks)"
+if curl -s -o /dev/null --max-time 3 "http://127.0.0.1:3111/api/demo/queue" 2>/dev/null; then
+  if node tests/offline-drain.e2e.mjs >/dev/null 2>&1; then
+    echo PASS
+  else
+    echo FAIL
+    fail=1
+  fi
+else
+  echo "SKIP (no server: DEMO_SINK=1 npx next start -p 3111)"
+fi
+
 # PostGIS spatial matching. Needs a local postgis container, so it SKIPS loudly when
 # docker or the container is absent rather than failing a clone that simply has no
 # docker. The test itself exits 2 for "no container" and 1 for a real assertion

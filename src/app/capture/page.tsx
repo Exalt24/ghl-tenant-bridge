@@ -39,6 +39,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Outbox, requestPersistentStorage, type OutboxItem } from "@/lib/outbox";
 import { createBrowserOutboxStorage } from "@/lib/outbox-storage-browser";
 import { startOutboxRuntime, type RuntimeHandle } from "@/lib/outbox-runtime";
+import { createHttpOutboxTransport } from "@/lib/outbox-transport-http";
 
 /** Long edge to downscale to. A stock phone photo is far larger than anything a roof
  *  report needs, and Safari's total canvas budget is device-specific and finite, so
@@ -152,13 +153,15 @@ export default function CapturePage() {
     storageRef.current = storage;
     const box = new Outbox({
       storage,
-      // No transport configured in this build: Supabase env is optional here, and the
-      // real one lives in outbox-transport-supabase.ts. This deliberately FAILS rather
-      // than pretending to send, so nothing is ever deleted on a fake success.
-      transport: {
-        async uploadBytes() { throw new Error("no transport configured"); },
-        async upsertRow() { return { rowsWritten: 0 }; },
-      },
+      // A REAL transport, so the queue can actually drain and the demo shows the whole
+      // feature rather than photos piling up forever. It POSTs to /api/demo/queue,
+      // which acknowledges bytesStored and rowsWritten in the same shape PostgREST
+      // does, so the outbox's proof-of-write guard is genuinely exercised: the local
+      // copy is only deleted once the server confirms a row.
+      //
+      // In production outbox-transport-supabase.ts replaces this and derives the row
+      // count from a PostgREST `.select()`. The contract is identical either way.
+      transport: createHttpOutboxTransport({ endpoint: "/api/demo/queue" }),
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
       onChange: () => { void refresh(); },
