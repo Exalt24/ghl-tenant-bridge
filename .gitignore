@@ -1,0 +1,6 @@
+.env
+.env.local
+node_modules/
+.next/
+tests/token_response.json
+tests/location_token.json
