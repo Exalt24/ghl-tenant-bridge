@@ -29,6 +29,22 @@ else
   fail=1
 fi
 
+# PostGIS spatial matching. Needs a local postgis container, so it SKIPS loudly when
+# docker or the container is absent rather than failing a clone that simply has no
+# docker. The test itself exits 2 for "no container" and 1 for a real assertion
+# failure, so the two cases stay distinguishable.
+printf "%-38s " "postgis spatial (25 checks)"
+if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx pgis; then
+  if python tests/postgis.test.py >/dev/null 2>&1; then
+    echo PASS
+  else
+    echo FAIL
+    fail=1
+  fi
+else
+  echo "SKIP (no pgis container; docker run --rm -d --name pgis -e POSTGRES_PASSWORD=pw -p 55432:5432 postgis/postgis:17-3.5)"
+fi
+
 # OAuth claim verification. SKIPS rather than fails when the token files are absent,
 # because they hold live credentials and are gitignored, so a fresh clone legitimately
 # will not have them. A skip is reported loudly so it cannot be mistaken for a pass.
