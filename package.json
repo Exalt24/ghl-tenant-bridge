@@ -1,0 +1,30 @@
+{
+  "name": "ghl-tenant-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant GoHighLevel to Supabase bridge with PostGIS property matching, county parcel lookup and an offline field-capture queue.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "sh tests/run_all.sh",
+    "test:logic": "node tests/outbox.test.mjs && node tests/geo.test.mjs && node tests/signature.test.mjs && node tests/workflow-auth.test.mjs",
+    "test:browser": "node tests/outbox.browser.mjs",
+    "test:postgis": "python tests/postgis.test.py"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.58.0",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@serwist/next": "^9.5.2",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "serwist": "^9.5.2",
+    "typescript": "^5.9.2"
+  }
+}
