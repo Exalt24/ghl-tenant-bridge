@@ -41,12 +41,21 @@
  *    inspector out on a roof. Hence a single `beforeFlush` hook rather than a
  *    refresh inside the per-item loop.
  * 6. A 2xx IS NOT PROOF THE ROW WAS WRITTEN. This is the rule that changes the
- *    interface, so it is worth stating precisely. Under row-level security a
- *    rejected UPDATE does not error: the server matches zero rows and returns
- *    success. An outbox that deletes on "no exception thrown" therefore drops the
- *    only copy of a record that was never stored, and the queue reads as fully
- *    synced forever. That is worse than a visible failure, because nothing will
- *    ever retry it and nobody will know to look.
+ *    interface, so it is worth stating precisely, and the two halves of RLS behave
+ *    differently. MEASURED on Postgres 17 with `force row level security` on
+ *    2026-08-20:
+ *      * INSERT violating a WITH CHECK clause RAISES:
+ *        `ERROR: new row violates row-level security policy`. Loud, fine.
+ *      * UPDATE or DELETE filtered out by a USING clause DOES NOT RAISE. It
+ *        reports `UPDATE 0` and returns success. The same statement against a
+ *        visible row reports `UPDATE 1`, so the count is the only difference.
+ *      * `UPDATE ... RETURNING id` on a hidden row returns ZERO ROWS, which is
+ *        what makes the distinction detectable from a client at all.
+ *
+ *    So an outbox that deletes on "no exception thrown" drops the only copy of a
+ *    record that was never stored, and the queue reads as fully synced forever.
+ *    That is worse than a visible failure, because nothing will ever retry it and
+ *    nobody will know to look.
  *
  *    So upsertRow returns { rowsWritten } and the flush treats zero as a FAILURE.
  *    Implementations must supply the count from something the server actually
