@@ -20,7 +20,7 @@ run "workflow-auth (22 checks)"  node tests/workflow-auth.test.mjs
 run "noaa live (17 checks)"      node tests/noaa.test.mjs
 run "swdi live (23 checks)"      node tests/swdi.test.mjs
 run "geo live (31 checks)"       node tests/geo.test.mjs
-run "outbox logic (47 checks)"   node tests/outbox.test.mjs
+run "outbox logic (56 checks)"   node tests/outbox.test.mjs
 run "published keys"             python tests/verify_public_keys.py
 
 printf "%-38s " "tenant isolation (live GHL)"
@@ -33,7 +33,7 @@ fi
 
 # Browser storage suite. Needs playwright plus a chromium binary, so it SKIPS loudly
 # rather than failing a machine that has neither installed.
-printf "%-38s " "outbox browser (30 checks)"
+printf "%-38s " "outbox browser (33 checks)"
 if node -e "require('C:/Users/Dax/AppData/Roaming/npm/node_modules/playwright/index.js')" >/dev/null 2>&1; then
   if node tests/outbox.browser.mjs >/dev/null 2>&1; then
     echo PASS

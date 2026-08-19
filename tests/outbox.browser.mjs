@@ -150,8 +150,8 @@ try {
     const box = new Outbox({
       storage,
       transport: {
-        async uploadBytes() { networkCalls++; },
-        async upsertRow() { networkCalls++; },
+        async uploadBytes(_i, b) { networkCalls++; return { bytesStored: b.length }; },
+        async upsertRow() { networkCalls++; return { rowsWritten: 1 }; },
       },
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
@@ -185,7 +185,10 @@ try {
     const storage = createBrowserOutboxStorage();
     const box = new Outbox({
       storage,
-      transport: { async uploadBytes() {}, async upsertRow() {} },
+      transport: {
+        async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+        async upsertRow() { return { rowsWritten: 1 }; },
+      },
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     });
@@ -214,8 +217,8 @@ try {
     const box = new Outbox({
       storage,
       transport: {
-        async uploadBytes(item, bytes) { seen.push([item.id, bytes.length]); },
-        async upsertRow() {},
+        async uploadBytes(item, bytes) { seen.push([item.id, bytes.length]); return { bytesStored: bytes.length }; },
+        async upsertRow() { return { rowsWritten: 1 }; },
       },
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
@@ -243,7 +246,10 @@ try {
     const storage = createBrowserOutboxStorage();
     const box = new Outbox({
       storage,
-      transport: { async uploadBytes() { throw new Error("offline"); }, async upsertRow() {} },
+      transport: {
+        async uploadBytes() { throw new Error("offline"); },
+        async upsertRow() { return { rowsWritten: 1 }; },
+      },
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     });
@@ -342,7 +348,10 @@ try {
     const sizes = [];
     const box = new Outbox({
       storage,
-      transport: { async uploadBytes(_i, b) { sizes.push(b.length); }, async upsertRow() {} },
+      transport: {
+        async uploadBytes(_i, b) { sizes.push(b.length); return { bytesStored: b.length }; },
+        async upsertRow() { return { rowsWritten: 1 }; },
+      },
       now: () => Date.now(),
       random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     });
@@ -368,6 +377,33 @@ try {
     JSON.stringify(fbFlush));
   check("none of this test's items remain queued", fbFlush.leftOfMine === 0,
     `left=${fbFlush.leftOfMine} totalRemaining=${fbFlush.totalRemaining}`);
+
+  console.log("\nTHE RLS PHANTOM, against real browser storage");
+  const phantom = await page.evaluate(async () => {
+    const { Outbox } = await import("/src/lib/outbox.js");
+    const { createBrowserOutboxStorage } = await import("/src/lib/outbox-storage-browser.js");
+    const storage = createBrowserOutboxStorage();
+    const box = new Outbox({
+      storage,
+      transport: {
+        async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+        // Exactly what an RLS rejection looks like: success, zero rows.
+        async upsertRow() { return { rowsWritten: 0 }; },
+      },
+      now: () => Date.now(),
+      random: (n) => crypto.getRandomValues(new Uint8Array(n)),
+    });
+    const id = await box.enqueue("photo", { phantom: true }, new Uint8Array([5, 5, 5, 5, 5]));
+    const r = await box.flush();
+    let bytesLen = -1;
+    try { bytesLen = (await storage.readBytes(`outbox/${id}`)).length; } catch { bytesLen = -1; }
+    const stillQueued = (await box.list()).some((x) => x.id === id);
+    return { r, bytesLen, stillQueued };
+  });
+  check("a zero-row ack is a failure in the browser too", phantom.r.failed === 1 && phantom.r.sent === 0,
+    JSON.stringify(phantom.r));
+  check("THE BYTES SURVIVE IN REAL STORAGE", phantom.bytesLen === 5, `len=${phantom.bytesLen}`);
+  check("and the item is still queued for retry", phantom.stillQueued === true);
 
   check("no uncaught page errors during the run", pageErrors.length === 0,
     pageErrors.slice(0, 3).join(" | "));

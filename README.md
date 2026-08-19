@@ -40,7 +40,12 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `docs/INTEGRATION_CONTRACT.md` | The contract. Token classes, limits, failure matrix, known gaps. |
 | `src/lib/ghl-oauth.ts` | OAuth install flow, rotating refresh, agency-to-location exchange. PROVEN live. |
 | `src/lib/workflow-auth.ts` | Auth for the UNSIGNED workflow-webhook path, with a downgrade guard. |
-| `tests/` | Seven suites, all passing. See below. |
+| `supabase/migrations/0002_postgis.sql` | Spherical hail-to-property matching. Generated geography columns, GiST, SECURITY INVOKER so RLS applies. |
+| `src/lib/geocode.ts` | US Census geocoding, keyless. Honest that it returns a block-face interpolation, not a rooftop. |
+| `src/lib/parcels.ts` | County ArcGIS parcel lookup. Envelope-only, because a point query silently matches nothing. |
+| `src/lib/outbox.ts` | Offline write queue. UUIDv7 idempotency keys, single-flight flush, never deletes before a confirmed send. |
+| `src/lib/outbox-storage-browser.ts` | OPFS for bytes, IndexedDB for metadata, with a fallback because Safari lacked `createWritable` until 26. |
+| `tests/` | Eleven suites, all passing. See below. |
 
 ## Tests
 
@@ -50,13 +55,37 @@ node tests/signature.test.mjs      # 19 checks, real crypto, both directions
 node tests/workflow-auth.test.mjs  # 22 checks, constant-time, downgrade guard
 node tests/noaa.test.mjs           # 17 checks, hits the live NWS API
 node tests/swdi.test.mjs           # 23 checks, live SWDI, bbox proven both ways
+node tests/geo.test.mjs            # 31 checks, live Census + live county parcels
+node tests/outbox.test.mjs         # 56 checks, state machine, all deps injected
+node tests/outbox.browser.mjs      # 33 checks, real Chromium, survives a reload
+python tests/postgis.test.py        # 25 checks, real migrations on real Postgres
 python tests/verify_public_keys.py  # shipped keys == HighLevel's published keys
 python tests/tenant_isolation.py    # live GHL cross-tenant isolation, with a control
 python tests/verify_oauth_claims.py # 17 checks, DECODES the JWTs, re-runs isolation
 ```
 
-All pass as of 2026-08-20. `verify_oauth_claims.py` needs the token files, which are
-gitignored because they hold live credentials; regenerate them by re-running an install.
+All eleven pass as of 2026-08-20. Three need something the machine may not have and
+SKIP loudly rather than failing a fresh clone: `verify_oauth_claims.py` needs the
+gitignored token files, `postgis.test.py` needs a local `pgis` container, and
+`outbox.browser.mjs` needs playwright.
+
+`postgis.test.py` applies the real migrations to a throwaway database and keeps the
+bounding box around as a **negative control**, so the corner over-selection is
+measured rather than asserted. It also exercises the radius function as
+`authenticated` rather than as the owner, which is how it caught a bug this repo
+would otherwise have shipped: creating the `extensions` schema leaves it without the
+usage grants Supabase normally provides, locking every RLS-scoped caller out of
+PostGIS.
+
+`geo.test.mjs` imports the modules directly rather than re-implementing their HTTP
+calls, which the older suites here do. It proves the parcel trap in both directions on
+one coordinate: a bare point query returns zero features and no error, the same point
+as a small envelope returns four parcels.
+
+`outbox.browser.mjs` writes, reloads the page, and reads back through a freshly
+constructed adapter, because surviving the page going away is the only durability
+claim worth making. It also forces the IndexedDB backend, since Chromium supports
+`createWritable` and would otherwise leave that entire path unexecuted.
 
 `signature.test.mjs` generates real keypairs and asserts the negative half: a
 tampered body fails, a wrong key fails, garbage fails, the literal string `"N/A"`
@@ -109,6 +138,34 @@ test suites need no GHL account at all. Full classification in
   record. Never treat an empty list right after a write as proof of anything.
 - A fresh sandbox has **zero snapshots**, so snapshot-based provisioning is
   unavailable there.
+
+## Measured facts about the geo and offline stack
+
+All verified on this machine 2026-08-20, not read in a doc.
+
+- **A bounding box is the wrong shape for a radius.** Its corners reach ~1.41x the
+  radius, so a property 67 km from a 50 km storm sits inside the box. SWDI only
+  accepts a box, so the fetch uses one and the MATCH uses `ST_DWithin`.
+- **`ST_MakePoint` is (longitude, latitude).** Our columns are named
+  latitude/longitude, so the natural typing order is the wrong one, and a swap
+  produces plausible small numbers rather than an error.
+- **`geography` distances are metres; `geometry(4326)` distances are degrees.**
+  Proven both ways: 400000 matches London-Paris, 400 does not, and the same pair
+  matches a `geometry` tolerance of 4.0.
+- **`ST_DWithin` is index-aware and `ST_Distance` is not.** DWithin carries
+  `postgis_index_supportfn` and rewrites to `&& _st_expand(...)`; Distance carries
+  none, so it must never appear in a WHERE clause.
+- **A county ArcGIS POINT query returns zero features and no error**, where the
+  identical coordinate as a ~20 m envelope returns four parcels.
+- **A dead ArcGIS service returns HTTP 200** with `{"error":{"code":404}}` in the
+  body, so the status line is not a health check.
+- **The Census geocoder returns a block-face interpolation, not a rooftop.** The
+  response carries a `tigerLine` id, a side of the street, and an address range.
+- **`FileSystemFileHandle.createWritable()` requires Safari/iOS 26** (Chrome 86,
+  Firefox 111). OPFS directories have existed in Safari far longer, so the obvious
+  availability check passes and the write then throws.
+- **Background Sync is supported in no version of Safari or iOS Safari.** There is no
+  background flush to build for iPhones.
 
 ## Known gaps
 

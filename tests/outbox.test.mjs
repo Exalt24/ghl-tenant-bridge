@@ -91,8 +91,8 @@ console.log("\ncapture writes locally and never waits on the network");
   const box = new Outbox({
     storage: s,
     transport: {
-      async uploadBytes() { called++; },
-      async upsertRow() { called++; },
+      async uploadBytes(_i, b) { called++; return { bytesStored: b.length }; },
+      async upsertRow() { called++; return { rowsWritten: 1 }; },
     },
     now: clock().now,
     random: fixedRandom(),
@@ -108,7 +108,8 @@ console.log("\ncapture writes locally and never waits on the network");
 
   // Ordering is capture order with no separate sequence column, because ids are v7.
   const c = clock();
-  const box2 = new Outbox({ storage: memStorage(), transport: { async uploadBytes() {}, async upsertRow() {} },
+  const box2 = new Outbox({ storage: memStorage(), transport: { async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow() { return { rowsWritten: 1 }; } },
     now: c.now, random: fixedRandom(3) });
   const ids = [];
   for (let i = 0; i < 5; i++) { c.advance(5); ids.push(await box2.enqueue("form", { i })); }
@@ -152,7 +153,7 @@ console.log("\na row upsert that fails AFTER the bytes upload also keeps everyth
   const box = new Outbox({
     storage: s,
     transport: {
-      async uploadBytes() { uploads++; },
+      async uploadBytes(_i, b) { uploads++; return { bytesStored: b.length }; },
       async upsertRow() { throw new Error("row rejected"); },
     },
     now: clock().now, random: fixedRandom(),
@@ -174,10 +175,11 @@ console.log("\nretry reuses the ORIGINAL idempotency key");
   const box = new Outbox({
     storage: s,
     transport: {
-      async uploadBytes() {},
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
       async upsertRow(item) {
         seen.push(item.id);
         if (failNext) { failNext = false; throw new Error("transient"); }
+        return { rowsWritten: 1 };
       },
     },
     now: c.now, random: fixedRandom(), backoffBaseMs: 100,
@@ -203,12 +205,13 @@ console.log("\nsingle flight");
   const box = new Outbox({
     storage: s,
     transport: {
-      async uploadBytes() {},
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
       async upsertRow() {
         concurrent++;
         maxConcurrent = Math.max(maxConcurrent, concurrent);
         await new Promise((r) => setTimeout(r, 20));
         concurrent--;
+        return { rowsWritten: 1 };
       },
     },
     now: clock().now, random: fixedRandom(),
@@ -231,7 +234,8 @@ console.log("\nbackoff defers, and exhaustion parks the item");
   const c = clock();
   const box = new Outbox({
     storage: s,
-    transport: { async uploadBytes() {}, async upsertRow() { throw new Error("nope"); } },
+    transport: { async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow() { throw new Error("nope"); } },
     now: c.now, random: fixedRandom(), maxAttempts: 3, backoffBaseMs: 1000,
   });
   await box.enqueue("form", { a: 1 });
@@ -268,8 +272,11 @@ console.log("\none bad item does not block the queue");
   const box = new Outbox({
     storage: s,
     transport: {
-      async uploadBytes() {},
-      async upsertRow(item) { if (item.payload.bad) throw new Error("bad row"); },
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow(item) {
+        if (item.payload.bad) throw new Error("bad row");
+        return { rowsWritten: 1 };
+      },
     },
     now: c.now, random: fixedRandom(),
   });
@@ -291,7 +298,8 @@ console.log("\nsession refresh happens once per flush, not per item");
   const c = clock();
   const box = new Outbox({
     storage: s,
-    transport: { async uploadBytes() {}, async upsertRow() {} },
+    transport: { async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow() { return { rowsWritten: 1 }; } },
     now: c.now, random: fixedRandom(),
     beforeFlush: async () => { refreshes++; },
   });
@@ -303,6 +311,88 @@ console.log("\nsession refresh happens once per flush, not per item");
 }
 
 // ---------------------------------------------------------------- persistence
+// ------------------------------------------------- THE PHANTOM
+console.log("\nTHE RLS PHANTOM: a 2xx with zero rows must NOT delete anything");
+{
+  // This is the failure this guard exists for. Under row-level security a rejected
+  // write does not raise: the server matches zero rows and answers success. Deleting
+  // on "no exception" therefore destroys the only copy of a record that was never
+  // stored, and the queue then reads as fully synced forever with nothing to retry.
+  const s = memStorage();
+  const box = new Outbox({
+    storage: s,
+    transport: {
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      // The exact shape of an RLS rejection: no throw, zero rows.
+      async upsertRow() { return { rowsWritten: 0 }; },
+    },
+    now: clock().now, random: fixedRandom(),
+  });
+
+  const id = await box.enqueue("photo", { a: 1 }, new Uint8Array([1, 2, 3]));
+  const r = await box.flush();
+
+  check("a zero-row acknowledgement counts as a FAILURE, not a success",
+    r.sent === 0 && r.failed === 1, JSON.stringify(r));
+  check("THE ITEM IS STILL QUEUED", s.items.has(id));
+  check("THE BYTES ARE STILL THERE", s.bytes.has(`outbox/${id}`));
+  const item = (await box.list())[0];
+  check("the error names the likely cause so it is debuggable",
+    /0 rows/.test(item.lastError) && /row-level security/.test(item.lastError),
+    item.lastError);
+
+  // And the same guard must not fire on a legitimate write.
+  const s2 = memStorage();
+  const box2 = new Outbox({
+    storage: s2,
+    transport: {
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow() { return { rowsWritten: 1 }; },
+    },
+    now: clock().now, random: fixedRandom(),
+  });
+  await box2.enqueue("photo", { a: 1 }, new Uint8Array([1]));
+  const ok = await box2.flush();
+  check("one row written is accepted, so the guard is not simply refusing everything",
+    ok.sent === 1 && s2.items.size === 0 && s2.bytes.size === 0, JSON.stringify(ok));
+
+  // A missing ack object entirely, e.g. a transport written before this contract.
+  const s3 = memStorage();
+  const box3 = new Outbox({
+    storage: s3,
+    transport: {
+      async uploadBytes(_i, b) { return { bytesStored: b.length }; },
+      async upsertRow() { return undefined; },
+    },
+    now: clock().now, random: fixedRandom(),
+  });
+  const id3 = await box3.enqueue("form", { a: 1 });
+  const r3 = await box3.flush();
+  check("a transport that returns nothing is treated as unproven, not as success",
+    r3.failed === 1 && s3.items.has(id3), JSON.stringify(r3));
+}
+
+console.log("\na SHORT upload is a failure too");
+{
+  const s = memStorage();
+  const box = new Outbox({
+    storage: s,
+    transport: {
+      // Server acknowledged fewer bytes than were sent: a truncated photo.
+      async uploadBytes(_i, b) { return { bytesStored: b.length - 10 }; },
+      async upsertRow() { return { rowsWritten: 1 }; },
+    },
+    now: clock().now, random: fixedRandom(),
+  });
+  const id = await box.enqueue("photo", { a: 1 }, new Uint8Array(100));
+  const r = await box.flush();
+  check("a short write fails rather than being shrugged off", r.failed === 1, JSON.stringify(r));
+  check("and the local bytes are kept", s.bytes.has(`outbox/${id}`));
+  check("the error reports both counts",
+    /acknowledged 90 of 100 bytes/.test((await box.list())[0].lastError),
+    (await box.list())[0].lastError);
+}
+
 console.log("\nrequestPersistentStorage reports honestly");
 {
   let r = await requestPersistentStorage({});

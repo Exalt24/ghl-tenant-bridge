@@ -40,6 +40,20 @@
  *    contexts refreshing at once can revoke the whole session and sign the
  *    inspector out on a roof. Hence a single `beforeFlush` hook rather than a
  *    refresh inside the per-item loop.
+ * 6. A 2xx IS NOT PROOF THE ROW WAS WRITTEN. This is the rule that changes the
+ *    interface, so it is worth stating precisely. Under row-level security a
+ *    rejected UPDATE does not error: the server matches zero rows and returns
+ *    success. An outbox that deletes on "no exception thrown" therefore drops the
+ *    only copy of a record that was never stored, and the queue reads as fully
+ *    synced forever. That is worse than a visible failure, because nothing will
+ *    ever retry it and nobody will know to look.
+ *
+ *    So upsertRow returns { rowsWritten } and the flush treats zero as a FAILURE.
+ *    Implementations must supply the count from something the server actually
+ *    returned, which in PostgREST means selecting the affected row back rather
+ *    than firing a blind write. Same reasoning for uploadBytes: it reports the
+ *    bytes the server acknowledged, and a mismatch is a failure rather than a
+ *    shrug.
  *
  * WHAT THIS FILE DELIBERATELY DOES NOT DO
  * ---------------------------------------
@@ -56,6 +70,13 @@
  * UUIDv7: 48-bit big-endian unix millisecond timestamp, then 74 bits of randomness,
  * with the version and variant bits set. Lexicographic order matches creation order,
  * which is why the queue needs no separate sequence column.
+ *
+ * CAVEAT WORTH KNOWING: the ordering is only as good as the DEVICE CLOCK. Field
+ * hardware does reset to a factory date on a dead battery, and a practitioner has
+ * published a case where a clock reset to 2014 corrupted the temporal ordering of an
+ * entire expedition's records. Ordering here is therefore best-effort for draining
+ * the queue, and anything that must be authoritative should carry a server-assigned
+ * timestamp on arrival rather than trusting capturedAt.
  *
  * Layout per the RFC:
  *   bytes 0-5   unix_ts_ms
@@ -114,14 +135,35 @@ export interface OutboxStorage {
   deleteBytes(ref: string): Promise<void>;
 }
 
+/** What the server actually acknowledged. Returned rather than implied, because a
+ *  2xx alone cannot distinguish "written" from "silently rejected by RLS". */
+export interface WriteAck {
+  /** Rows the server reported writing. ZERO IS A FAILURE, not a no-op. */
+  rowsWritten: number;
+}
+
+export interface UploadAck {
+  /** Bytes the server acknowledged storing. A short write is a failure. */
+  bytesStored: number;
+}
+
 export interface OutboxTransport {
   /** Upload bytes to a deterministic destination derived from the item id, so a
-   *  repeat upload overwrites rather than duplicating. Must be idempotent. */
-  uploadBytes(item: OutboxItem, bytes: Uint8Array): Promise<void>;
-  /** Upsert the row keyed on item.id. The server side needs a UNIQUE INDEX on that
-   *  column, not merely a constraint, because PostgREST resolves on_conflict
-   *  against an index. */
-  upsertRow(item: OutboxItem): Promise<void>;
+   *  repeat upload overwrites rather than duplicating. Must be idempotent, and must
+   *  report what the server acknowledged so a truncated upload cannot pass. */
+  uploadBytes(item: OutboxItem, bytes: Uint8Array): Promise<UploadAck>;
+  /**
+   * Upsert the row keyed on item.id and RETURN THE ROW COUNT THE SERVER REPORTED.
+   *
+   * The server side needs a UNIQUE INDEX on that column, not merely a constraint,
+   * because PostgREST resolves on_conflict against an index.
+   *
+   * An implementation MUST derive rowsWritten from returned data, e.g. a PostgREST
+   * upsert with a select of the affected row. Returning a hardcoded 1 defeats the
+   * entire guard: an RLS-rejected write answers 2xx with zero rows, and this count
+   * is the only signal that separates that from a real write.
+   */
+  upsertRow(item: OutboxItem): Promise<WriteAck>;
 }
 
 export interface OutboxOptions {
@@ -247,9 +289,27 @@ export class Outbox {
         try {
           if (item.bytesRef) {
             const bytes = await this.o.storage.readBytes(item.bytesRef);
-            await this.o.transport.uploadBytes(item, bytes);
+            const up = await this.o.transport.uploadBytes(item, bytes);
+            // A short write is a failure. Storage services can acknowledge fewer
+            // bytes than were sent, and accepting that would leave a truncated
+            // photo on the server and delete the good copy here.
+            if (up.bytesStored !== bytes.length) {
+              throw new Error(
+                `upload acknowledged ${up.bytesStored} of ${bytes.length} bytes`
+              );
+            }
           }
-          await this.o.transport.upsertRow(item);
+
+          const ack = await this.o.transport.upsertRow(item);
+          // THE PHANTOM GUARD. An RLS-rejected write returns 2xx and zero rows, so
+          // "it did not throw" is not evidence. Without this the local copy is
+          // deleted and the record is lost silently and permanently.
+          if (!ack || ack.rowsWritten < 1) {
+            throw new Error(
+              "server acknowledged 0 rows: the write was rejected without an error, " +
+                "most likely by a row-level security policy"
+            );
+          }
 
           // Only now is it safe to drop the local copy. Deleting any earlier means
           // a crash between the two steps loses the photo permanently.
