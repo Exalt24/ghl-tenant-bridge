@@ -45,6 +45,19 @@ PASS  no orphaned photo bytes left on the device
 | ![Empty state](docs/screenshots/capture-empty.png) | ![Queued](docs/screenshots/capture-queued.png) |
 | Nothing queued, so nothing is said. The quiet state is the absence of a badge, not a green tick. | Count plus action. Thumbnails are read back from device storage, so they survive a reload. |
 
+### The state that matters
+
+<img src="docs/screenshots/capture-offline.png" alt="Four photos queued with no signal" width="390">
+
+No signal, four photos held on the device, each one named and marked *Waiting*. The
+strip is deliberately quiet: a thin line of muted text, not a red banner, because the
+app is working exactly as intended and saying so loudly would be a lie about severity.
+
+The same page at desktop width, since a field tool still gets opened on a laptop in an
+office:
+
+![Desktop layout](docs/screenshots/capture-desktop.png)
+
 ### Why the interface looks like this
 
 The design came from reading real field apps, not from taste. **CompanyCam's actual
