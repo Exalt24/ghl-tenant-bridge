@@ -7,12 +7,14 @@ Built by driving the real APIs rather than reading about them. **Every number be
 measured on this machine, and where something is unimplemented it is listed as a gap
 rather than glossed.**
 
-- **12 test suites, ~284 assertions**, run against a real Postgres, a real browser and
+- **13 test suites, ~304 assertions**, run against a real Postgres, a real browser and
   live third-party APIs.
 - The suites that touch a live service run a **positive control before the negative
   test**, so a broken request cannot pass for a successful refusal.
-- **Register, stated plainly:** this runs locally and is not deployed. Say "built,
-  tested and running locally", never "in production". There are no real users.
+- **Register, stated plainly:** the database and storage are a real hosted Supabase
+  project, and the Next.js app is run locally. Nothing is deployed to a public URL
+  and there are no real users, so this is "built, tested, and running against a real
+  hosted backend", never "in production".
 
 ---
 
@@ -216,6 +218,7 @@ python tests/postgis.test.py        # 25  real migrations on real Postgres
 python tests/verify_public_keys.py  #     shipped keys == HighLevel's published keys
 python tests/tenant_isolation.py    #     live GHL cross-tenant isolation, with a control
 python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
+node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
 Four suites need something a fresh clone may not have and **skip loudly** rather than
@@ -274,6 +277,32 @@ python tests/postgis.test.py
 `tests/supabase_shim.sql` stands in for the `auth` schema and Supabase's default
 privileges so RLS can be **exercised** locally. It is a test harness and says so; it
 validates policy logic, not Supabase's permission model.
+
+### The shim is no longer the last word
+
+`tests/postgis.test.py` runs against local Postgres through that shim, and a shim is a
+fidelity approximation: passing there proves the SQL is coherent, not that PostgREST,
+Storage and RLS behave as assumed on the hosted product. So the same migrations are
+applied to a real Supabase project and the load-bearing facts are re-asserted there.
+
+What that pass found, which local testing could not:
+
+- **`outbox-transport-supabase.ts` upserted `client_uuid` into a table that did not
+  exist.** The column appeared in exactly one file in the whole repo. The transport had
+  unit tests and had never touched real schema, so `0003_field_captures.sql` and
+  `0004_storage_field_photos.sql` are the migrations that make it real.
+- **The RLS phantom reproduces through PostgREST**, not just in psql. An anon `PATCH`
+  of a row it cannot see returns **HTTP 200 with an empty body**, and the row is
+  provably unchanged. That is the entire reason the transport counts returned rows.
+- **A second tenant is the test that matters.** Anon is a member of nothing, so an
+  anon-only negative test can pass while a real cross-tenant hole stays open. There are
+  two seeded orgs and two users, and tenant B is refused on both the table and the
+  storage folder, with a positive control proving B still works inside its own org.
+- **The corner proof holds on Supabase's own PostGIS**: a point at 95% of both bounding
+  box edges sits **67.2 km** from a 50 km storm, and `ST_DWithin` rejects it while the
+  box would accept it. Swapping the `ST_MakePoint` arguments moves a Dallas point
+  **14,096 km**.
+
 
 ---
 

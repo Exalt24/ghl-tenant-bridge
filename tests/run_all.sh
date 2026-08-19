@@ -91,6 +91,21 @@ else
   echo "SKIP (no token files; re-run an install to regenerate)"
 fi
 
+# The hosted Supabase path. SKIPPED unless a hosted_env.json is present, because it
+# needs a real project, two seeded orgs and two users; a missing config is not a
+# failure, it just means this machine has no project wired.
+printf "%-38s " "hosted-supabase.e2e"
+if [ -f "$HOSTED_ENV" ] || [ -n "$HOSTED_ENV" ] && [ -f "$HOSTED_ENV" ]; then
+  if node tests/hosted-supabase.e2e.mjs > /tmp/hosted.log 2>&1; then
+    echo PASS
+  else
+    echo FAIL
+    fail=1
+  fi
+else
+  echo "SKIP (set HOSTED_ENV to a hosted_env.json to run)"
+fi
+
 echo ""
 if [ "$fail" = 0 ]; then
   echo "ALL SUITES PASS"

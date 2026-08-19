@@ -39,7 +39,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Outbox, requestPersistentStorage, type OutboxItem } from "@/lib/outbox";
 import { createBrowserOutboxStorage } from "@/lib/outbox-storage-browser";
 import { startOutboxRuntime, type RuntimeHandle } from "@/lib/outbox-runtime";
-import { createHttpOutboxTransport } from "@/lib/outbox-transport-http";
+import { pickTransport, browserSupabase } from "@/lib/pick-transport";
 
 /** Long edge to downscale to. A stock phone photo is far larger than anything a roof
  *  report needs, and Safari's total canvas budget is device-specific and finite, so
@@ -85,6 +85,15 @@ export default function CapturePage() {
   const [busy, setBusy] = useState(false);
 
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  // Which backend is actually live. Shown on screen, because a demo that says
+  // "Supabase" while writing to a local sink is the exact overclaim this repo avoids.
+  const [backend, setBackend] = useState<"supabase" | "demo-sink" | "resolving">(
+    "resolving"
+  );
+  const orgIdRef = useRef<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMsg, setAuthMsg] = useState("");
 
   const boxRef = useRef<Outbox | null>(null);
   const runtimeRef = useRef<RuntimeHandle | null>(null);
@@ -149,26 +158,36 @@ export default function CapturePage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const storage = createBrowserOutboxStorage();
     storageRef.current = storage;
-    const box = new Outbox({
-      storage,
-      // A REAL transport, so the queue can actually drain and the demo shows the whole
-      // feature rather than photos piling up forever. It POSTs to /api/demo/queue,
-      // which acknowledges bytesStored and rowsWritten in the same shape PostgREST
-      // does, so the outbox's proof-of-write guard is genuinely exercised: the local
-      // copy is only deleted once the server confirms a row.
-      //
-      // In production outbox-transport-supabase.ts replaces this and derives the row
-      // count from a PostgREST `.select()`. The contract is identical either way.
-      transport: createHttpOutboxTransport({ endpoint: "/api/demo/queue" }),
-      now: () => Date.now(),
-      random: (n) => crypto.getRandomValues(new Uint8Array(n)),
-      onChange: () => { void refresh(); },
-    });
-    boxRef.current = box;
 
-    runtimeRef.current = startOutboxRuntime({ outbox: box, onFlush: () => void refresh() });
+    // The transport is RESOLVED, not assumed. pickTransport returns the real Supabase
+    // transport when the project is configured AND a session exists AND that user is
+    // an org member, because all three are required for a write to survive WITH CHECK.
+    // Otherwise it returns the local sink, which honours the identical contract, so the
+    // proof-of-write guard is exercised either way and the queue only ever deletes a
+    // local copy after the server confirms a row.
+    void pickTransport().then((picked) => {
+      if (cancelled) return;
+      orgIdRef.current = picked.orgId;
+      setBackend(picked.backend);
+
+      const box = new Outbox({
+        storage,
+        transport: picked.transport,
+        beforeFlush: picked.beforeFlush,
+        now: () => Date.now(),
+        random: (n) => crypto.getRandomValues(new Uint8Array(n)),
+        onChange: () => { void refresh(); },
+      });
+      boxRef.current = box;
+      runtimeRef.current = startOutboxRuntime({
+        outbox: box,
+        onFlush: () => void refresh(),
+      });
+      void refresh();
+    });
 
     // Ask on every mount, not once at install: a granted persistence can be reset, and
     // WebKit's heuristics for granting it include being installed to the home screen.
@@ -181,6 +200,9 @@ export default function CapturePage() {
     void refresh();
 
     return () => {
+      // Set before stopping: pickTransport resolves asynchronously, and without this a
+      // fast unmount would start a runtime that nothing ever stops.
+      cancelled = true;
       runtimeRef.current?.stop();
       window.removeEventListener("online", sync);
       window.removeEventListener("offline", sync);
@@ -189,13 +211,60 @@ export default function CapturePage() {
     };
   }, [refresh]);
 
+  /** Sign in, then re-resolve the transport so writes start going to Supabase. */
+  const onSignIn = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const client = browserSupabase();
+    if (!client) { setAuthMsg("Supabase is not configured for this build."); return; }
+    setAuthMsg("Signing in...");
+    const { error } = await client.auth.signInWithPassword({ email, password });
+    if (error) { setAuthMsg(error.message); return; }
+    const picked = await pickTransport();
+    orgIdRef.current = picked.orgId;
+    setBackend(picked.backend);
+    setAuthMsg(
+      picked.backend === "supabase"
+        ? "Signed in. Photos now go to Supabase."
+        : "Signed in, but this account is not a member of any organisation, so writes " +
+          "would be refused. Still using the local sink."
+    );
+    // Rebuild the outbox on the new transport, keeping anything already queued.
+    const storage = storageRef.current;
+    if (storage) {
+      runtimeRef.current?.stop();
+      const box = new Outbox({
+        storage,
+        transport: picked.transport,
+        beforeFlush: picked.beforeFlush,
+        now: () => Date.now(),
+        random: (n) => crypto.getRandomValues(new Uint8Array(n)),
+        onChange: () => { void refresh(); },
+      });
+      boxRef.current = box;
+      runtimeRef.current = startOutboxRuntime({
+        outbox: box,
+        onFlush: () => void refresh(),
+      });
+      void refresh();
+    }
+  }, [email, password, refresh]);
+
   const onFiles = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const box = boxRef.current;
     const files = Array.from(e.target.files ?? []);
     // Clear the input immediately so the same file can be picked again and the control
     // is reusable while the previous batch is still being written.
     e.target.value = "";
-    if (!box || files.length === 0) return;
+    // The outbox is built asynchronously now, because choosing the transport requires
+    // resolving the caller's org. That opened a window where a fast tap arrived before
+    // the box existed and the photos were dropped in silence, which is the one outcome
+    // this whole feature exists to prevent. The control is disabled until it resolves,
+    // and this stays as a belt-and-braces guard that SAYS something if it ever fires.
+    if (!box) {
+      setAnnouncement("Still getting ready, try that again in a second.");
+      return;
+    }
+    if (files.length === 0) return;
 
     setBusy(true);
     const gps = await currentPosition();
@@ -203,7 +272,10 @@ export default function CapturePage() {
       try {
         const bytes = await downscale(f);
         await box.enqueue("photo", {
-          org_id: "demo-org",
+          // Resolved from org_members at sign-in, never chosen by the page. The tenant
+          // always comes from our own row; a page-supplied org_id is a cross-tenant
+          // write waiting to happen. Null means the demo sink, which has no tenancy.
+          org_id: orgIdRef.current ?? "demo-org",
           captured_lat: gps?.lat ?? null,
           captured_lon: gps?.lon ?? null,
           original_name: f.name,
@@ -238,7 +310,75 @@ export default function CapturePage() {
         </div>
       )}
 
-      <h1 style={{ fontSize: 20, margin: "4px 0 14px" }}>Field Capture</h1>
+      <h1 style={{ fontSize: 20, margin: "4px 0 6px" }}>Field Capture</h1>
+
+      {/* BELOW the heading, deliberately. The first pass rendered this block above the
+          h1, which put a login form over a page with no title yet. Caught by reading
+          the screenshot; every DOM assertion passed while it looked wrong.
+
+          Which backend is live, stated plainly: a demo claiming "Supabase" while
+          writing to a local sink is exactly the overclaim this repo exists to avoid,
+          so the text is derived from the RESOLVED transport, never from config. */}
+      <p
+        data-testid="backend-label"
+        style={{ margin: "0 0 12px", fontSize: 12, opacity: 0.62 }}
+      >
+        {backend === "resolving" && "Checking where photos will be sent..."}
+        {backend === "supabase" && "Photos go to Supabase Postgres and Storage."}
+        {backend === "demo-sink" &&
+          "Photos go to a local demo endpoint. Sign in to use Supabase."}
+      </p>
+
+      {/* Sign-in only appears when Supabase is configured but unused, so the public
+          demo is never blocked behind a login it does not need.
+
+          Each input gets a REAL <label>, not a placeholder. A placeholder is not an
+          accessible name and it vanishes the moment someone types, so the field a
+          screen reader announces would be nameless exactly when it matters. */}
+      {backend === "demo-sink" && browserSupabase() !== null && (
+        <form
+          onSubmit={onSignIn}
+          data-testid="signin"
+          style={{
+            display: "grid",
+            gap: 10,
+            margin: "0 0 18px",
+            padding: 12,
+            maxWidth: 340,
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: 10,
+          }}
+        >
+          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+            Email
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              /* 16px minimum: anything smaller makes iOS Safari zoom on focus. */
+              style={{ padding: 9, fontSize: 16, borderRadius: 6 }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              style={{ padding: 9, fontSize: 16, borderRadius: 6 }}
+            />
+          </label>
+          <button
+            type="submit"
+            style={{ padding: "10px 14px", fontSize: 16, borderRadius: 6 }}
+          >
+            Sign in
+          </button>
+        </form>
+      )}
+      {authMsg && <p style={{ margin: "0 0 12px", fontSize: 13 }}>{authMsg}</p>}
 
       {/* Count plus action. Disappears entirely at zero, so the quiet state is silence
           rather than a green tick. */}
@@ -276,11 +416,14 @@ export default function CapturePage() {
           marginBottom: 16,
         }}
       >
-        {busy ? "Saving..." : "Take photos"}
+        {backend === "resolving" ? "Getting ready..." : busy ? "Saving..." : "Take photos"}
         <input
           id="shot"
           data-testid="shot"
           type="file"
+          /* Disabled until the transport is resolved, so a tap cannot land before there
+             is anywhere to put the photo. */
+          disabled={backend === "resolving"}
           /* image/jpeg, NOT image/*: asking for jpeg makes iOS transcode HEIC for us,
              and a HEIC reaching createImageBitmap throws. */
           accept="image/jpeg"
