@@ -372,7 +372,10 @@ export default function CapturePage() {
           </label>
           <button
             type="submit"
-            style={{ padding: "10px 14px", fontSize: 16, borderRadius: 6 }}
+            // minHeight rather than more padding: the target must stay 44px even if the
+            // font or the padding changes later. WCAG 2.5.5, and this page is phone-first
+            // by its own copy ("add this to your home screen").
+            style={{ padding: "10px 14px", fontSize: 16, borderRadius: 6, minHeight: 44 }}
           >
             Sign in
           </button>
@@ -399,7 +402,11 @@ export default function CapturePage() {
             onClick={() => void runtimeRef.current?.flushNow("manual-retry")}
             style={{
               background: "none", border: "none", color: "#7fb2ff",
-              fontSize: 15, fontWeight: 600, cursor: "pointer", padding: 4,
+              fontSize: 15, fontWeight: 600, cursor: "pointer",
+              // Was padding 4, which measured under 44px. This is the button someone
+              // taps standing next to a truck with no signal, so it is the one that can
+              // least afford to be small.
+              padding: "0 12px", minHeight: 44,
             }}
           >
             Retry
