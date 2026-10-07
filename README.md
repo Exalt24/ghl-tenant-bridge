@@ -7,8 +7,10 @@ Built by driving the real APIs rather than reading about them. **Every number be
 measured on this machine, and where something is unimplemented it is listed as a gap
 rather than glossed.**
 
-- **13 test suites, ~304 assertions**, run against a real Postgres, a real browser and
-  live third-party APIs.
+- **13 test suites, 263 counted assertions** (the 11 suites that print a count; the
+  other two, the published-keys diff and the live tenant isolation check, report pass
+  or fail), run against a real Postgres, a real browser and live third-party APIs. The
+  per-suite counts are listed under Tests.
 - The suites that touch a live service run a **positive control before the negative
   test**, so a broken request cannot pass for a successful refusal.
 - **Register, stated plainly:** the database and storage are a real hosted Supabase
@@ -73,13 +75,13 @@ So: **count plus action, never status plus colour**, and the card disappears at 
 (Encircle's decrementing-badge pattern). The copy says what will happen, because
 web.dev's guidance is that non-technical audiences misread the word "offline".
 
-Two more borrowed decisions. **Capture never blocks on a save** — Encircle earned a
+Two more borrowed decisions. **Capture never blocks on a save**, because Encircle earned a
 3-star review for making users save one picture before taking the next. And **GPS and
 time are stamped at capture, not at upload**, because the upload can be hours later.
 
 Accessibility was checked against the spec rather than assumed. `role="status"` carries
 an implicit `aria-live="polite"` and `aria-atomic="true"`, and MDN documents it as
-**inappropriate for a frequently-updating counter** — every photo would fire a full
+**inappropriate for a frequently-updating counter**, since every photo would fire a full
 announcement. So the count is plain text and one polite region announces transitions
 only. The queue is a plain list with real buttons, never a listbox holding buttons.
 
@@ -87,9 +89,9 @@ only. The queue is a plain list with real buttons, never a listbox holding butto
 
 ## The finding worth reading first
 
-**HighLevel deprecates the legacy `X-WH-Signature` webhook header on 2026-09-01.** After
+**HighLevel deprecated the legacy `X-WH-Signature` webhook header on 2026-09-01.** Since
 that date webhooks are signed only with `X-GHL-Signature` (Ed25519). Any integration
-verifying just the legacy RSA header stops validating on that date, quietly.
+verifying just the legacy RSA header stopped validating on that date, quietly.
 
 This bridge is dual-path, prefers Ed25519, and **fails closed** on a legacy signature
 presented after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset` so
@@ -107,7 +109,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/outbox.ts` | The queue. UUIDv7 keys minted at capture, single-flight flush, proof-of-write guard. |
 | `src/lib/outbox-storage-browser.ts` | OPFS for bytes, IndexedDB for metadata, with a fallback because Safari lacked `createWritable` until 26. |
 | `src/lib/outbox-runtime.ts` | Registers the flush triggers. Page-driven, because iOS has no background path. |
-| `src/lib/outbox-transport-supabase.ts` | Production transport. Derives the row count from a PostgREST `.select()`. |
+| `src/lib/outbox-transport-supabase.ts` | The Supabase transport. Derives the row count from a PostgREST `.select()`. |
 | `src/lib/outbox-transport-http.ts` | Reference transport for a non-Supabase backend. |
 | `supabase/migrations/0002_postgis.sql` | Spherical storm-to-property matching. Generated geography columns, GiST, `SECURITY INVOKER` so RLS applies. |
 | `src/lib/geocode.ts` | US Census geocoding, keyless. Honest that it returns a block-face interpolation, not a rooftop. |
@@ -143,7 +145,7 @@ than asserted.
 - `ST_DWithin` carries `postgis_index_supportfn` and rewrites to `&& _st_expand(...)`.
   **`ST_Distance` carries none** and must never appear in a `WHERE` clause.
 - **The RLS phantom.** An `INSERT` violating a `WITH CHECK` clause raises. An `UPDATE`
-  or `DELETE` filtered by a `USING` clause **returns success with zero rows** — `UPDATE
+  or `DELETE` filtered by a `USING` clause **returns success with zero rows**: `UPDATE
   0`, no error, while the same statement on a visible row says `UPDATE 1`. So a client
   treating "it did not throw" as proof deletes its local copy of a record that was
   never stored. `RETURNING` is what makes it detectable. Re-runnable proof:
@@ -155,7 +157,7 @@ than asserted.
 ### Geocoding and parcels
 
 - The **Census geocoder** is keyless and returns a **block-face interpolation, not a
-  rooftop** — the response carries a `tigerLine` id, a side of the street, and an
+  rooftop**: the response carries a `tigerLine` id, a side of the street, and an
   address range. So the parcel lookup must buffer.
 - A county ArcGIS **point query returns zero features and no error**, while the same
   coordinate as a ~20 m envelope returns several parcels. A point-in-polygon design
@@ -191,7 +193,7 @@ than asserted.
   Ed25519-signed, retried 12 times and logged for 30 days.
 - **There is no `FormSubmit` event** in the 58-event app catalogue, so form submissions
   must come through a workflow action, which is exactly the unsigned path.
-- **Webhook subscription registration has no API at all** — all 83 official specs
+- **Webhook subscription registration has no API at all**: all 83 official specs
   parsed: 852 paths, zero containing "hook". It is UI-only on both paths.
 - Four distinct refusal messages mean four different things: missing scope, wrong token
   class on a PIT, right class but wrong tenant, and an OAuth Company token hitting a
@@ -213,7 +215,7 @@ node tests/swdi.test.mjs           # 23  live SWDI, bbox proven both ways
 node tests/geo.test.mjs            # 31  live Census + live county parcels
 node tests/outbox.test.mjs         # 56  state machine, all deps injected
 node tests/outbox.browser.mjs      # 33  real Chromium, survives a reload
-node tests/offline-drain.e2e.mjs   # 10  offline capture -> reconnect -> empty
+node tests/offline-drain.e2e.mjs   # 10  capture offline, reconnect, queue empties
 python tests/postgis.test.py        # 25  real migrations on real Postgres
 python tests/verify_public_keys.py  #     shipped keys == HighLevel's published keys
 python tests/tenant_isolation.py    #     live GHL cross-tenant isolation, with a control
@@ -225,6 +227,13 @@ Four suites need something a fresh clone may not have and **skip loudly** rather
 failing: `verify_oauth_claims.py` needs the gitignored token files, `postgis.test.py`
 needs a local `pgis` container, `outbox.browser.mjs` needs Playwright, and
 `offline-drain.e2e.mjs` needs a running server.
+
+The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a
+fresh clone and all passed with the printed counts (signature 19, workflow-auth 22, noaa
+17, swdi 23, geo 31, outbox 56, outbox browser 33, postgis 25, offline drain
+10, which sum to 236). The remaining 27 assertions are in `verify_oauth_claims.py` and
+`hosted-supabase.e2e.mjs`, which need the gitignored token files and the hosted
+Supabase project, plus the two suites that report pass or fail only.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
 Reverting the coordinate order in `0002_postgis.sql` produces 5 failures, including the
@@ -239,7 +248,7 @@ Some tests exist because of a specific mistake:
   back its own contact, proving the harness works, and only then is tenant B refused.
   Without it, a broken request would "prove" isolation by failing for the wrong reason.
 - `outbox.browser.mjs` **forces the IndexedDB backend**, because Chromium supports
-  `createWritable` and would otherwise leave that whole path unexecuted — and that is
+  `createWritable` and would otherwise leave that whole path unexecuted, and that is
   the path most iPhones will actually use.
 
 ---
