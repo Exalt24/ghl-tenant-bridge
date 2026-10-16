@@ -1,5 +1,9 @@
 # GHL Tenant Bridge
 
+![Offline capture and drain](docs/screenshots/offline-drain.gif)
+
+*One unedited recording: the signal drops, four photos queue locally, then the queue drains to empty on its own.*
+
 A multi-tenant GoHighLevel to Supabase bridge with spherical storm-to-property matching,
 keyless geocoding and county parcel lookup, and an offline-first field capture queue.
 
@@ -25,9 +29,7 @@ rather than glossed.**
 A roofer stands on a roof with no signal, takes four photos, and drives away. Nothing
 may be lost, and nothing may be sent twice.
 
-![Offline capture and drain](docs/screenshots/offline-drain.gif)
-
-Left to right, that is one unedited recording: signal drops and the strip appears,
+In the recording at the top, left to right: signal drops and the strip appears,
 four photos queue locally while the count climbs, then signal returns and the queue
 drains to empty on its own. The server received nothing during the offline stretch.
 
