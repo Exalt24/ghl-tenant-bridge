@@ -1,11 +1,12 @@
 # GHL Tenant Bridge
 
+[![CI](https://github.com/Exalt24/ghl-tenant-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Exalt24/ghl-tenant-bridge/actions/workflows/ci.yml)
+
 ![Offline capture and drain](docs/screenshots/offline-drain.gif)
 
 *One unedited recording: the signal drops, four photos queue locally, then the queue drains to empty on its own.*
 
-A multi-tenant GoHighLevel to Supabase bridge with spherical storm-to-property matching,
-keyless geocoding and county parcel lookup, and an offline-first field capture queue.
+Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup.
 
 Built by driving the real APIs rather than reading about them. **Every number below was
 measured on this machine, and where something is unimplemented it is listed as a gap
