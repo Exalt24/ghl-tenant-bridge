@@ -10,6 +10,7 @@ Working name: **GHL Tenant Bridge** (repo `Exalt24/ghl-tenant-bridge`). Decided 
 
 ## Name
 
+- Chosen name: **GHL Tenant Bridge** (chosen)
 - Decision: keep **GHL Tenant Bridge**. The repo did not become a different thing, the Worker receiver is the front door of the same bridge, and the name already says what it does. It also uses the vendor's own word for the product the listing names, so a reader finds it by the term they search for.
 - Why not rename: the repo is linked from the portfolio, the profile README, the LinkedIn project block and a pending application. GitHub redirects an old repo URL, but a new name would still have to be swept through every surface and rechecked, for no gain in clarity.
 - Backups if it is ever renamed: Tenant Relay, Stormline.
@@ -31,5 +32,4 @@ None assigned. The repo carries no brand palette and uses no brand font.
 
 `python Operations/tools/brand_name_check.py ghl-tenant-bridge tenant-relay stormline-bridge` run 2026-10-22: no exact npm, PyPI, crates, App Store or GitHub-owner hit for the two alternatives; the current name is a repo slug, not a product name that needs a domain. The manual USPTO, WIPO, IPOPHL and EUIPO searches the tool prints were not run, because nothing here is sold under the name.
 
-Previous names: none
-Kept on purpose: none
+This repository has had no other name, so there is nothing to sweep and nothing kept on purpose.
