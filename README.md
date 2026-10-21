@@ -121,6 +121,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/ghl-oauth.ts` | OAuth install, rotating refresh, agency-to-location exchange. Proven live. |
 | `src/lib/noaa.ts` / `src/lib/swdi.ts` | Live NWS alerts and historical hail via NCEI SWDI, both keyless. |
 | `src/app/api/webhooks/ghl/route.ts` | The receiver: verify, replay window, tenant resolve, idempotency, apply, dead-letter. |
+| `edge/` | A Cloudflare Worker that verifies GHL's Ed25519 signature, stores each delivery once in D1 and forwards it on a cron with backoff. Its own tests, including real workerd. See [edge/README.md](edge/README.md). |
 | `docs/INTEGRATION_CONTRACT.md` | Token classes, limits, failure matrix, known gaps. |
 | `docs/DEMO_PORTABILITY.md` | What is free and permanent vs what expires or costs money. |
 
@@ -128,81 +129,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 
 ## Measured facts
 
-Everything here was verified on this machine, not read in a doc.
-
-### A bounding box is the wrong shape for a radius
-
-Its corners reach about 1.41x the radius, so a property **67 km from a 50 km storm sits
-inside the box**. SWDI only accepts a box, so the fetch uses one and the *match* uses
-`ST_DWithin` over a generated `geography(Point,4326)` column with a GiST index. The box
-stays in the repo as a **negative control**, so the over-selection is measured rather
-than asserted.
-
-### Postgres and PostGIS
-
-- `geography` distances and the `ST_DWithin` tolerance are **metres**; `geometry(4326)`
-  is **degrees**. Proven both directions.
-- `ST_MakePoint` is **(longitude, latitude)**. The columns here are named
-  latitude/longitude, so the natural typing order is the wrong one, and a swap produces
-  plausible small numbers rather than an error.
-- `ST_DWithin` carries `postgis_index_supportfn` and rewrites to `&& _st_expand(...)`.
-  **`ST_Distance` carries none** and must never appear in a `WHERE` clause.
-- **The RLS phantom.** An `INSERT` violating a `WITH CHECK` clause raises. An `UPDATE`
-  or `DELETE` filtered by a `USING` clause **returns success with zero rows**: `UPDATE
-  0`, no error, while the same statement on a visible row says `UPDATE 1`. So a client
-  treating "it did not throw" as proof deletes its local copy of a record that was
-  never stored. `RETURNING` is what makes it detectable. Re-runnable proof:
-  `tests/rls_phantom_proof.sql`.
-- Creating the `extensions` schema leaves it **without the usage grants** Supabase
-  normally provides, which locks every RLS-scoped caller out of PostGIS. Found because
-  the suite runs as `authenticated` rather than as owner.
-
-### Geocoding and parcels
-
-- The **Census geocoder** is keyless and returns a **block-face interpolation, not a
-  rooftop**: the response carries a `tigerLine` id, a side of the street, and an
-  address range. So the parcel lookup must buffer.
-- A county ArcGIS **point query returns zero features and no error**, while the same
-  coordinate as a ~20 m envelope returns several parcels. A point-in-polygon design
-  reports "no parcel for this address" across an entire dataset with nothing to warn you.
-- **A dead ArcGIS service answers HTTP 200** with `{"error":{"code":404}}` in the body,
-  so the status line is not a health check.
-- An unbounded query stops at **2000 rows** with only `exceededTransferLimit` to say so.
-
-### Browsers and offline
-
-- **Background Sync is supported in no version of Safari or iOS Safari**, and iOS has no
-  Periodic Background Sync or Background Fetch either. Nothing runs after the app
-  closes on the phones field crews carry, so the flush lives in the page.
-- **`FileSystemFileHandle.createWritable()` requires Safari/iOS 26** (Chrome 86, Firefox
-  111), while OPFS directories have existed in Safari for years. The obvious
-  availability check therefore passes on an older iPhone and the write then throws. The
-  adapter feature-detects on a real handle and falls back to IndexedDB, and reads
-  consult **both** backends so bytes queued before a browser update are not declared
-  missing.
-- iOS evicts an origin's storage after seven days without interaction, taking IndexedDB,
-  OPFS and the Cache API **together**. `navigator.storage.persist()` is the mitigation,
-  it is requested on every mount, and its answer is surfaced rather than assumed.
-
-### GoHighLevel
-
-- **Target User and token class are independent axes.** A Sub-Account-target app
-  installed from Agency View still returns a **Company** token with no `locationId`, so
-  `/oauth/locationToken` is mandatory even there.
-- **The workflow Custom Webhook action is unsigned.** Confirmed by capturing a real
-  delivery: six headers, none a signature, and no `webhookId`, `timestamp` or
-  `locationId` in the body. So no idempotency key and no replay window on that path,
-  and it is a premium action. The Marketplace app subscription path is free,
-  Ed25519-signed, retried 12 times and logged for 30 days.
-- **There is no `FormSubmit` event** in the 58-event app catalogue, so form submissions
-  must come through a workflow action, which is exactly the unsigned path.
-- **Webhook subscription registration has no API at all**: all 83 official specs
-  parsed: 852 paths, zero containing "hook". It is UI-only on both paths.
-- Four distinct refusal messages mean four different things: missing scope, wrong token
-  class on a PIT, right class but wrong tenant, and an OAuth Company token hitting a
-  sub-account scope.
-- Sandbox limits: **25 req/10s**, 10,000/day, per location, and a **2-location hard cap**
-  per sandbox agency.
+Every number here was measured on this machine; the full list, with the geocoding, parcel, browser and HighLevel findings, is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md).
 
 ---
 
@@ -220,6 +147,8 @@ node tests/outbox.test.mjs         # 56  state machine, all deps injected
 node tests/outbox.browser.mjs      # 33  real Chromium, survives a reload
 node tests/offline-drain.e2e.mjs   # 10  capture offline, reconnect, queue empties
 python tests/postgis.test.py        # 25  real migrations on real Postgres
+
+(cd edge && npm install && npm run test:all)   # 30 + 18 mutants + 10 in real workerd
 python tests/verify_public_keys.py  #     shipped keys == HighLevel's published keys
 python tests/tenant_isolation.py    #     live GHL cross-tenant isolation, with a control
 python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
@@ -292,29 +221,7 @@ validates policy logic, not Supabase's permission model.
 
 ### The shim is no longer the last word
 
-`tests/postgis.test.py` runs against local Postgres through that shim, and a shim is a
-fidelity approximation: passing there proves the SQL is coherent, not that PostgREST,
-Storage and RLS behave as assumed on the hosted product. So the same migrations are
-applied to a real Supabase project and the load-bearing facts are re-asserted there.
-
-What that pass found, which local testing could not:
-
-- **`outbox-transport-supabase.ts` upserted `client_uuid` into a table that did not
-  exist.** The column appeared in exactly one file in the whole repo. The transport had
-  unit tests and had never touched real schema, so `0003_field_captures.sql` and
-  `0004_storage_field_photos.sql` are the migrations that make it real.
-- **The RLS phantom reproduces through PostgREST**, not just in psql. An anon `PATCH`
-  of a row it cannot see returns **HTTP 200 with an empty body**, and the row is
-  provably unchanged. That is the entire reason the transport counts returned rows.
-- **A second tenant is the test that matters.** Anon is a member of nothing, so an
-  anon-only negative test can pass while a real cross-tenant hole stays open. There are
-  two seeded orgs and two users, and tenant B is refused on both the table and the
-  storage folder, with a positive control proving B still works inside its own org.
-- **The corner proof holds on Supabase's own PostGIS**: a point at 95% of both bounding
-  box edges sits **67.2 km** from a 50 km storm, and `ST_DWithin` rejects it while the
-  box would accept it. Swapping the `ST_MakePoint` arguments moves a Dallas point
-  **14,096 km**.
-
+Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_SHIM.md](docs/SUPABASE_SHIM.md).
 
 ---
 
@@ -344,13 +251,5 @@ Listed because a README that only lists strengths is not information.
 
 ## Free vs paid, and why it matters for reuse
 
-**The Marketplace app webhook path is the primary path, deliberately.** It is free,
-Ed25519-signed, retried 12 times with backoff, and carries 30 days of delivery logs.
+What is free and permanent and what expires or costs money: [docs/FREE_VS_PAID.md](docs/FREE_VS_PAID.md).
 
-The workflow "Custom Webhook" action is a **premium** action and is used only as a
-fallback for form submissions, which have no event in the catalogue.
-
-Geocoding and parcels are keyless and free. The sandbox runs on trial access to
-Enterprise features and expires about six months after creation, so nothing
-load-bearing is built on it: most suites need no GHL account at all. Full
-classification in `docs/DEMO_PORTABILITY.md`.

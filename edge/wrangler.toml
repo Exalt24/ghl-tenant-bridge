@@ -1,0 +1,22 @@
+name = "ghl-edge-receiver"
+main = "src/worker.ts"
+compatibility_date = "2026-09-01"
+
+# Every 5 minutes: the drain is one indexed query for rows that are due, so a tight cron buys nothing.
+# Cloudflare's free plan allows 5 cron triggers per account, so a deploy needs a free slot first.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Create the database with `wrangler d1 create ghl-edge`, paste its id below, then
+# `wrangler d1 execute ghl-edge --remote --file schema.sql`.
+[[d1_databases]]
+binding = "DB"
+database_name = "ghl-edge"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+# Where verified events are forwarded. Replace with your own endpoint.
+SINK_URL = "https://example.invalid/ghl-events"
+
+# SECRET, set with `wrangler secret put SINK_TOKEN`, never written here.
+# ENVIRONMENT and TEST_PUBLIC_KEY_B64 are test-only and must never appear in this file (a test asserts it).

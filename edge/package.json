@@ -1,0 +1,19 @@
+{
+  "name": "ghl-edge-receiver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that verifies, de-duplicates, stores and forwards GoHighLevel webhooks.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/worker.test.mjs",
+    "test:mutants": "node test/mutants.mjs",
+    "test:workerd": "node test/e2e_workerd.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:mutants && npm run test:workerd"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261021.1",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -22,3 +22,17 @@ jobs:
           node tests/outbox.test.mjs
           node tests/signature.test.mjs
           node tests/workflow-auth.test.mjs
+
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: edge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm run test:all

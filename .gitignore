@@ -1,6 +1,7 @@
 .env
 .env.local
 node_modules/
+.wrangler/
 .next/
 tests/token_response.json
 tests/location_token.json
