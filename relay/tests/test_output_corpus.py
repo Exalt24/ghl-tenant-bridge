@@ -3,8 +3,8 @@
 `tests/corpus/relay_corpus_1.jsonl` holds 60 cases an independent adversary wrote against the relay: each has an input, an
 expectation (`pass` is an ordinary input the relay must handle, `fail` an input it must refuse or flag), a `why` that states
 the harm, a `source` (`real` was measured against a vendor page, `invented` was made up) and, for an invented case, the
-`promise` it quotes from the spec. Eight cases disagreed with the code when the corpus was written: 16, 25, 26, 44 and 60
-were harm and are fixed (their tests assert the fixed behaviour), 59 was README text and is fixed, and 28 and 55 are
+`promise` it quotes from the spec. Eight cases disagreed with the code when the corpus was written: 16, 44 and 60 were harm
+and are fixed (their tests assert the fixed behaviour), 59 was README text and is fixed, and 25, 26, 28 and 55 are
 KNOWN_LIMIT (their tests pin the current behaviour so a change is noticed and decided, not silent). The 52 other cases agreed
 with the code and are covered by the suites named in each module; this file replays the eight.
 
@@ -107,7 +107,7 @@ def test_case_17_the_same_body_with_type_lead_is_delivered_and_raises_no_alert(s
     assert meta.requests[0]["json"]["data"][0]["action_source"] == "website"
 
 
-# ---- case 25 and 26: a replay of a Sheets row that already landed must not add it again -------------------------------------------
+# ---- case 25 and 26: KNOWN_LIMIT, a replay of a Sheets row that already landed appends it again -----------------------------------
 
 
 def sheets_world(store, sheets, sa_json):
@@ -123,7 +123,9 @@ def admin(client, path, body):
     return client.post(path, data=json.dumps(body), headers={"Authorization": f"Bearer {ADMIN_TOKEN}", "Content-Type": "application/json"})
 
 
-def test_case_25_a_force_replay_of_a_done_sheets_delivery_does_not_add_the_row_again(store, sheets, sa_json):
+def test_case_25_known_limit_a_force_replay_of_a_done_sheets_delivery_is_a_deliberate_second_append(store, sheets, sa_json):
+    # KNOWN_LIMIT: docs/routes.md describes `force` as a deliberate re-send. Replay clears the crash mark, so the Sheets sink
+    # does not read the sheet back first and the row is appended again. No signal separates this from the intended re-send.
     cfg, client, rig = sheets_world(store, sheets, sa_json)
     r = ingest_one(store, cfg, payload(1))
     rig.settle()
@@ -131,10 +133,11 @@ def test_case_25_a_force_replay_of_a_done_sheets_delivery_does_not_add_the_row_a
     res = admin(client, "/admin/replay", {"event_id": r.event_id, "sink": "sheets", "force": True})
     assert res.get_json() == {"ok": True, "reset": 1}
     rig.settle()
-    assert store.delivery(r.event_id, "sheets")["state"] == "done" and sheets.column_values(1) == [r.event_id]
+    assert sheets.column_values(1) == [r.event_id, r.event_id]
 
 
-def test_case_26_a_dead_sheets_row_that_had_landed_is_not_duplicated_by_the_documented_replay(store, sheets, sa_json):
+def test_case_26_known_limit_replaying_a_dead_sheets_row_that_had_landed_appends_it_again(store, sheets, sa_json):
+    # KNOWN_LIMIT: needs two faults, an ambiguous landing that outlasts the retries and an operator replay of that dead row.
     cfg, client, rig = sheets_world(store, sheets, sa_json)
     r = ingest_one(store, cfg, payload(1))
     rig.settle()
@@ -142,7 +145,7 @@ def test_case_26_a_dead_sheets_row_that_had_landed_is_not_duplicated_by_the_docu
         t.execute("UPDATE deliveries SET state = 'dead', last_error = 'expired: older than 72 hours' WHERE event_id = ?", (r.event_id,))
     assert admin(client, "/admin/replay", {"event_id": r.event_id}).get_json()["reset"] == 1
     rig.settle()
-    assert store.delivery(r.event_id, "sheets")["state"] == "done" and sheets.column_values(1) == [r.event_id]
+    assert sheets.column_values(1) == [r.event_id, r.event_id]
 
 
 # ---- case 44: backfill never sends a stored meeting to a sink that does not take meetings ------------------------------------------

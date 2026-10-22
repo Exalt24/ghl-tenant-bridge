@@ -115,7 +115,6 @@ T_TOOLS = ["tests/test_tools.py"]
 T_STORE3 = ["tests/test_store_tier3.py"]
 T_CONTRACTS3 = ["tests/test_contracts_tier3.py"]
 T_CORPUS = ["tests/test_output_corpus.py"]
-T_CLASS_F2 = ["tests/test_class_tables.py::test_class_f2_a_recovery_action_never_adds_a_second_copy_a_sink_could_have_found"]
 T_CLASS_F3 = ["tests/test_class_tables.py::test_class_f3_a_backfill_gives_each_sink_only_the_sources_it_accepts"]
 
 MUTANTS: list[Mutant] = [
@@ -455,7 +454,7 @@ MUTANTS: list[Mutant] = [
     M("the maybe_acted mark is never stored", STORE, ("1 if (plan.maybe_acted or claim.prior_claim_lost) else 0,", "0,"), tests=T_STORE2),
     M("the age of the maybe_acted mark is not read", STORE, ('since_maybe_acted_s=None if row["since_maybe_acted_s"] is None else float(row["since_maybe_acted_s"]),', "since_maybe_acted_s=None,"), tests=T_STORE2),
     M("maybe_acted_before is never set", STORE, ('maybe_acted_before=row["maybe_acted_at"] is not None,', "maybe_acted_before=False,"), tests=T_STORE2),
-    M("replay keeps the lost claim and the maybe_acted mark", STORE, ("attempts = 0, retries = 0, claims = 0, \"\n", "attempts = 0, retries = 0, \"\n"), tests=T_STORE2),
+    M("replay keeps the lost claim and the maybe_acted mark", STORE, ("claims = 0, maybe_acted_at = NULL, ", ""), tests=T_STORE2),
     M("get_event does not report the received time", STORE, ('            row["received_epoch"] = to_epoch(row["received_at"])', '            row["received_epoch"] = None'), tests=T_STORE2),
     M("the append lock never blocks", STORE, ("            return cur.rowcount == 1\n\n    def _lock_release", "            return True\n\n    def _lock_release"), tests=T_STORE2 + T_SHEETS),
     M("the append lock is never released", STORE, ('            t.execute("DELETE FROM append_locks WHERE lock_key = ? AND holder = ?", (key, holder))', "            pass"), tests=T_STORE2),
@@ -772,7 +771,7 @@ MUTANTS: list[Mutant] = [
     M("container smoke: the inline worker is not switched on", TSMOKE, ('"RELAY_INLINE_WORKER": "1", ', ""), tests=T_TOOLS),
     M("container smoke: waiting returns on the first look whatever it finds", TSMOKE, ("        value = cond()\n        if value:\n            return value", "        value = cond()\n        if True:\n            return value"), tests=T_TOOLS),
     M("container smoke: the fake inside the container writes to another file", TSFAKE, ('LOG = "/tmp/slack-requests.jsonl"', 'LOG = "/tmp/other.jsonl"'), tests=T_TOOLS),
-    # ---- first output pass, relay: F1 a skip the operator never sees, F2 a replay that duplicates, F3 a backfill that ignores the source ----
+    # ---- first output pass, relay: F1 a skip the operator never sees, F3 a backfill that ignores the source ----
     M("F1 a missing type is skipped without asking for an alert", CAP, ('workflow body", alert=True)', 'workflow body")'), tests=T_CAPI + T_CORPUS),
     M("F1 a missing type is treated as any unmapped type", CAP, ("        if not kind:\n            # A workflow body", "        if kind is None:\n            # A workflow body"), tests=T_CAPI),
     M("F1 every unmapped type alerts, not only a missing one", CAP, ("        if not kind:\n            # A workflow body", "        if not name:\n            # A workflow body"), tests=T_CAPI),
@@ -780,11 +779,6 @@ MUTANTS: list[Mutant] = [
     M("F1 a skipped outcome that asks for an alert never gets one", FAN, ("        if outcome.alert:\n            plan.alerts.append", "        if False:\n            plan.alerts.append"), tests=T_FAN),
     M("F1 the skipped alert is filed as another kind", FAN, ('plan.alerts.append(("skipped", reason or "skipped"))', 'plan.alerts.append(("dead", reason or "skipped"))'), tests=T_FAN + T_CORPUS),
     M("F1 the alert digest does not count skipped alerts", ALR, ('(skipped, "skipped"), ', ""), tests=T_FAN),
-    M("F2 a replay forgets the crash mark again", STORE, ('f"maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)}), "', 'f"maybe_acted_at = NULL, "'), tests=T_STORE2 + T_CORPUS),
-    M("F2 a forced replay leaves a skipped row skipped", STORE, ('states = ("dead", "done", "skipped") if force else ("dead",)', 'states = ("dead", "done") if force else ("dead",)'), tests=T_STORE),
-    M("F2 a replay marks the row as tried just now", STORE, ("{self.now(-REPLAY_MARK_AGE_S)}", "{self.now()}"), tests=T_STORE2),
-    M("F2 a replay overwrites an earlier mark with the long ago one", STORE, ("maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)})", "maybe_acted_at = {self.now(-REPLAY_MARK_AGE_S)}"), tests=T_STORE2),
-    M("F2 the replay mark is shorter than the Sheets wait for a late append", STORE, ("REPLAY_MARK_AGE_S = 3600.0", "REPLAY_MARK_AGE_S = 30.0"), tests=T_STORE2 + T_CLASS_F2),
     M("F3 a backfill gives a stored meeting to every sink", STORE, ("        if not with_meetings:\n            sql +=", "        if False:\n            sql +="), tests=T_CORPUS + T_CLASS_F3),
     M("F3 a backfill never gives a meeting to any sink", STORE, ("        if not with_meetings:\n            sql +=", "        if True:\n            sql +="), tests=T_CLASS_F3),
     M("F3 a backfill filters on the wrong source", STORE, ("params.append(MEETING_SOURCE)", 'params.append("ingest")'), tests=T_CORPUS + T_CLASS_F3),

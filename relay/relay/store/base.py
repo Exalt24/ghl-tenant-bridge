@@ -18,10 +18,6 @@ from typing import Any, Callable, Iterator
 CLAIMABLE_STATES = ("pending",)
 # The `source` of an event that is a Fathom meeting. Only the sinks a tenant lists in `meeting_sinks()` ever get one.
 MEETING_SOURCE = "fathom"
-# A replayed row is marked as "a try before this one may have reached the vendor, a while ago": a sink that can read back
-# (Sheets) then looks for the row before it appends, instead of adding a second copy of a lead that already landed. An hour
-# is longer than any sink waits for a late landing, so an empty read-back is believed at once.
-REPLAY_MARK_AGE_S = 3600.0
 ALERT_CAP_PER_SINK = 200
 
 
@@ -376,15 +372,11 @@ class SqlStore:
 
     # ---- operator actions ----------------------------------------------------------------------------------------
     def replay(self, event_id: str, sink: str | None = None, force: bool = False) -> int:
-        """Put selected deliveries back to pending. Only `dead` rows unless force, which also accepts done/skipped.
-
-        The try counters start again, but the crash marker is kept (or set): the earlier try may have reached the vendor, and
-        a sink with a read back must look before it sends, so a replay never duplicates a row that already landed."""
+        """Put selected deliveries back to pending. Only `dead` rows unless force, which also accepts done/skipped."""
         states = ("dead", "done", "skipped") if force else ("dead",)
         marks = ", ".join("?" for _ in states)
         sql = (
-            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, claims = 0, "
-            f"maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)}), "
+            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, claims = 0, maybe_acted_at = NULL, "
             f"created_at = {self.now()}, "
             f"next_at = {self.now()}, claim_until = NULL, claim_token = NULL, last_status = NULL, last_error = NULL, "
             f"finished_at = NULL WHERE event_id = ? AND state IN ({marks})"

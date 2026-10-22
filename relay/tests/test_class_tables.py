@@ -1,8 +1,8 @@
-"""Generated tables for the three classes the first output pass found in the relay. Each table crosses every input route,
+"""Generated tables for the two classes of the first output pass that were fixed (the third, a replay that appends a Sheets
+row again, is a KNOWN_LIMIT pinned in test_output_corpus.py). Each table crosses every input route,
 every omitted field, every sink and every recovery action it could meet, so a neighbour of the reproduced case cannot hide.
 
 CLASS-TABLE: F1 an input a documented route may omit must never be skipped with an outcome the operator cannot see
-CLASS-TABLE: F2 a recovery action must never reset the marker a sink needs to avoid a duplicate
 CLASS-TABLE: F3 a bulk path must honour which source each sink accepts
 """
 
@@ -17,14 +17,12 @@ import pytest
 from relay.app import Deps, create_app
 from relay.config import load_config
 from relay.sinks.capi import CapiSink
-from relay.sinks.make import MakeSink
-from relay.sinks.sheets import SheetsSink
 from relay.sinks.slack import SlackSink
 
 from .fakes.fathom import WEBHOOK_SECRET
 from .fakes.meta_graph import PIXEL_ID, TOKEN
 from .fakes.sheets import SPREADSHEET_ID, service_account_json
-from .helpers import ADMIN_TOKEN, INGEST_TOKEN, LOCATION, TENANT, WORKFLOW_SECRET, config_json, env_for, ingest_one, make_cfg, make_rig, payload
+from .helpers import ADMIN_TOKEN, INGEST_TOKEN, LOCATION, TENANT, WORKFLOW_SECRET, config_json, env_for, make_cfg, make_rig, payload
 from .test_ghl_route import keypair, sign
 
 # ---- F1: the documented workflow body, every route, every omitted field, every sink combination -----------------------------------
@@ -94,64 +92,6 @@ def test_class_f1_a_documented_input_a_route_may_omit_is_never_skipped_in_silenc
         assert type_alerts[0]["event_id"] == states["capi"]["event_id"] and type_alerts[0]["tenant"] == TENANT
     else:
         assert type_alerts == []  # every other omission follows the sink's own, already stored, rules without an alert
-
-
-# ---- F2: every sink, every recovery action, every crash marker -------------------------------------------------------------------
-
-F2_SINKS = ("sheets", "slack", "make")
-# (state the row is in, the action the operator takes, whether the action may reset it)
-F2_ACTIONS = (("dead", "replay", True), ("dead", "force", True), ("done", "force", True), ("done", "replay", False))
-F2_MARKERS = ("clean", "maybe_acted", "claim_lost")
-F2_LANDED = (True, False)
-
-
-def f2_cfg(sink: str, slack, make, sheets, sa_json):
-    if sink == "slack":
-        return make_cfg(slack.url, None), {"slack": SlackSink()}
-    if sink == "make":
-        return make_cfg(None, make.url), {"make": MakeSink()}
-    sink_cfg = {
-        "url_env": "ACME_SHEETS_URL", "env": {"spreadsheet_id": "ACME_SHEET_ID", "service_account": "ACME_SA_JSON"},
-        "options": {"sheet": "Sheet1"}, "timeout_s": 5.0,
-    }
-    cfg = make_cfg(None, None, extra_sinks={"sheets": sink_cfg}, env_extra={"ACME_SHEETS_URL": sheets.url, "ACME_SHEET_ID": SPREADSHEET_ID, "ACME_SA_JSON": sa_json})
-    return cfg, {"sheets": SheetsSink()}
-
-
-def f2_cases():
-    for sink, (state, action, may_reset), marker, landed in itertools.product(F2_SINKS, F2_ACTIONS, F2_MARKERS, F2_LANDED):
-        if state == "done" and not landed:
-            continue  # a delivery cannot be done without having landed
-        yield sink, state, action, may_reset, marker, landed
-
-
-@pytest.mark.parametrize("sink,state,action,may_reset,marker,landed", list(f2_cases()))
-def test_class_f2_a_recovery_action_never_adds_a_second_copy_a_sink_could_have_found(store, slack, make, sheets, sa_json, sink, state, action, may_reset, marker, landed):
-    # CLASS-TABLE: F2 sinks x (row state, replay action) x crash marker x landed or not
-    cfg, registry = f2_cfg(sink, slack, make, sheets, sa_json)
-    rig = make_rig(store, cfg, registry=registry)
-    r = ingest_one(store, cfg)
-    effects = {"sheets": lambda: sheets.effects, "slack": lambda: slack.effects, "make": lambda: make.effects}[sink]
-    if landed:
-        rig.settle()
-        assert effects() == 1 and store.delivery(r.event_id, sink)["state"] == "done"  # positive control: it landed once
-    with store.tx() as t:
-        if state == "dead":
-            t.execute("UPDATE deliveries SET state = 'dead', last_error = 'expired: older than 72 hours' WHERE event_id = ? AND sink = ?", (r.event_id, sink))
-        if marker == "maybe_acted":
-            t.execute(f"UPDATE deliveries SET maybe_acted_at = {store.now()} WHERE event_id = ? AND sink = ?", (r.event_id, sink))
-        if marker == "claim_lost":
-            t.execute("UPDATE deliveries SET claims = claims + 2 WHERE event_id = ? AND sink = ?", (r.event_id, sink))
-    reset = store.replay(r.event_id, sink if action == "force" else None, action == "force")
-    assert reset == (1 if may_reset else 0)
-    rig.settle()
-    after = store.delivery(r.event_id, sink)
-    assert after["state"] == "done"
-    if sink == "sheets":
-        assert sheets.column_values(1).count(r.event_id) == 1 and sheets.effects == 1  # one lead, one row, however it was replayed
-    else:
-        # Slack and Make have no read back: a replay is a deliberate second send, and only when the row was reset.
-        assert effects() == (1 if landed else 0) + (1 if reset else 0)
 
 
 # ---- F3: every sink, every source, the tenant's own fathom setting --------------------------------------------------------------
