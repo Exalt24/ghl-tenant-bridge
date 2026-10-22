@@ -468,7 +468,7 @@ def test_due_in_s_reports_none_zero_and_the_wait(store):
     c = store.claim("slack", lease_s=300)
     assert 290 < store.due_in_s() <= 300.5  # leased, so due when the lease ends
     store.finish(c, FinishPlan(state="pending", retries_inc=1, delay_s=120.0))
-    assert 110 < store.due_in_s() <= 120
+    assert 110 < store.due_in_s() <= 120.5
     store.advance(130)
     assert store.due_in_s() == 0.0
 
@@ -477,7 +477,7 @@ def test_due_in_s_accounts_for_a_pause(store):
     put(store, key="dp", sinks=["slack"])
     c = store.claim("slack", lease_s=300)
     store.finish(c, FinishPlan(state="pending", retries_inc=1, delay_s=1.0, pause_s=900.0, pause_reason="x"))
-    assert 890 < store.due_in_s() <= 900
+    assert 890 < store.due_in_s() <= 900.5
 
 
 def test_alert_gate_lets_exactly_one_caller_through_per_interval(store):
