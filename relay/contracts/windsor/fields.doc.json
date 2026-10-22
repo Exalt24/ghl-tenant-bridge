@@ -1,0 +1,14 @@
+{
+  "source": "https://connectors.windsor.ai/facebook/fields",
+  "retrieved": "2026-10-22",
+  "fields_in_the_list": 858,
+  "used_by_the_relay": [
+    {"id": "date", "name": "Date", "type": "DATE", "description": "The dimension that determines how date-based data in a chart is handled (the time dimension)."},
+    {"id": "campaign_id", "name": "Campaign ID", "type": "TEXT", "description": "The unique ID number of the ad campaign you're viewing in reporting. Your campaign contains ad sets and ads."},
+    {"id": "campaign", "name": "Campaign", "type": "TEXT", "description": "The campaign name of the ad campaign you're viewing in reporting. Your campaign contains ad sets and ads."},
+    {"id": "spend", "name": "Amount Spent", "type": "NUMERIC", "description": "The estimated total amount of money you've spent on your campaign, ad set or ad during its schedule."},
+    {"id": "impressions", "name": "Impressions", "type": "NUMERIC", "description": "The number of times your ads were on screen."},
+    {"id": "clicks", "name": "Clicks", "type": "NUMERIC", "description": "The number of clicks on your ads."},
+    {"id": "account_currency", "name": "Account currency", "type": "TEXT", "description": "Currency that is used by your ad account. (duplicate)"}
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "source": ["https://developers.fathom.ai/webhooks", "https://developers.fathom.ai/api-reference/openapi.yaml"],
+  "retrieved": "2026-10-22",
+  "headers": {
+    "webhook-id": {"meaning": "unique message identifier; the same when the same webhook is resent after a failure", "example": "msg_2x2zwLOcWaRTzsLK8KtbQt1FTk9"},
+    "webhook-timestamp": {"meaning": "seconds since the epoch", "example": 1712345678},
+    "webhook-signature": {
+      "meaning": "space delimited signatures, each `<version>,<base64>`",
+      "example": "v1,BKQR1BIFjiNPdfpqM3+FH/YckKhX7WIq4/KK6Cc5aDY=",
+      "multiple_example": "v1,RmF0aG9t v2,QVBJ"
+    }
+  },
+  "example_secret": "whsec_5WbX5kEWLlfzsGNjH64I8lOOqUB6e8FH",
+  "example_secret_note": "the page's own example: use the part after whsec_ (5WbX5kEWLlfzsGNjH64I8lOOqUB6e8FH), base64 decoded, as the key",
+  "signed_content": "${id}.${timestamp}.${body}",
+  "body_rule": "the raw body, before any JSON parsing",
+  "steps": [
+    "extract webhook-id, webhook-timestamp and webhook-signature from the headers",
+    "build the signed content: id, timestamp and raw body joined by periods",
+    "base64 decode the part of the secret after whsec_",
+    "HMAC the signed content with SHA-256 using the decoded secret, then base64 encode the result",
+    "extract all signatures from the webhook-signature header, removing version prefixes like v1,",
+    "compare the calculated signature to each provided signature with a constant-time comparison",
+    "verify the timestamp is within the acceptable tolerance (typically 5 minutes) to prevent replay attacks"
+  ],
+  "success": "if any signature matches and the timestamp is valid, the webhook is authentic",
+  "acknowledge": "return any 2xx code to acknowledge receipt"
+}

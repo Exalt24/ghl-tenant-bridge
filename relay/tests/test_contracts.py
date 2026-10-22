@@ -13,7 +13,7 @@ from relay import ghl
 from relay.sinks import registry
 
 CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
-VENDORS = ["slack", "make", "meta", "google", "ghl"]
+VENDORS = ["slack", "make", "meta", "google", "ghl", "windsor", "fathom"]
 TAGS = (".doc.", ".assumed.", ".rfc7523.")
 
 

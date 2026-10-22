@@ -1,0 +1,13 @@
+{
+  "source": "https://developers.fathom.ai/api-overview",
+  "retrieved": "2026-10-22",
+  "global": {"calls": 60, "window_seconds": 60},
+  "heavy": {"calls": 30, "window_seconds": 60, "may_be_lowered_to": 5, "heavy_means": ["/recordings summary and transcript endpoints", "/meetings with include_summary or include_transcript set to true"]},
+  "headers": {
+    "RateLimit-Limit": "the maximum number of requests allowed in a time window",
+    "RateLimit-Remaining": "the number of requests remaining in the current time window",
+    "RateLimit-Reset": "the time remaining in the current time window",
+    "Retry-After": "seconds to wait before retrying; sent on 429 responses only"
+  },
+  "on_429": "wait at least Retry-After seconds before retrying"
+}

@@ -1,0 +1,14 @@
+{
+  "source": "https://windsor.ai/api-documentation/",
+  "retrieved": "2026-10-22",
+  "statuses": {
+    "400": "invalid_request: the request is malformed or missing required parameters",
+    "401": "authentication_error: invalid API key or authentication credentials",
+    "403": "permission_denied: the API key does not have permission to access the requested resource",
+    "404": "not_found: the requested connector or resource does not exist",
+    "429": "rate_limit_exceeded: too many requests in a given amount of time",
+    "500": "server_error: an unexpected server error occurred"
+  },
+  "limits": {"requests_per_minute": 600, "requests_per_day": 10000},
+  "on_429": "the response includes headers indicating the remaining quota and when it resets; the page names no header"
+}

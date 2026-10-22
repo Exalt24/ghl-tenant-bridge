@@ -1,0 +1,8 @@
+{
+  "source": "https://developers.facebook.com/docs/graph-api/results",
+  "retrieved": "2026-10-22",
+  "cursors": "A cursor refers to a random string of characters which marks a specific item in a list of data. Your app shouldn't store cursors or assume that they will be valid in the future.",
+  "limit": "the maximum number of objects that may be returned; a query may return fewer than the limit due to filtering; do not use fewer results than the limit to detect the end of the list",
+  "next": "The Graph API endpoint that will return the next page of data. If not included, this is the last page of data. Due to how pagination works with visibility and privacy, it is possible that a page may be empty but contain a next paging link. Stop paging when the next link no longer appears.",
+  "relay_rule": "follow paging.next until it is absent; an empty page that carries next is not the end; store no cursor; do not follow a next link that leaves the configured host"
+}

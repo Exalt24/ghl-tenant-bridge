@@ -1,0 +1,21 @@
+{
+  "source": ["https://developers.facebook.com/docs/marketing-api/insights/best-practices", "https://developers.facebook.com/docs/graph-api/overview/rate-limiting", "https://developers.facebook.com/documentation/ads-commerce/marketing-api/overview/rate-limiting"],
+  "retrieved": "2026-10-22",
+  "data_per_call": {
+    "statement": "data-per-call limits apply to both sync and async insights calls and return error_code = 100, CodeException (error subcode: 1487534)",
+    "advice": "limit the query by the date range or the number of ad ids, or break it into multiple queries"
+  },
+  "token_error": {"code": 190, "meaning": "an expired or invalid access token (the generic Graph error table)"},
+  "throttle_codes": {"documented": [4, 17, 613], "ads_account_series": "the 80000 series (80000, 80003, 80004 and 80014 are named on the rate limit page)"},
+  "usage_header": {
+    "names": ["X-Business-Use-Case-Usage", "X-Business-Use-Case"],
+    "sample": {
+      "{business-object-id}": [
+        {"type": "ads_insights", "call_count": 97, "total_cputime": 23, "total_time": 23, "estimated_time_to_regain_access": 19, "ads_api_access_tier": "development_access"}
+      ]
+    },
+    "estimated_time_to_regain_access": "Time in minutes to regain access."
+  },
+  "other_headers_named": {"X-FB-Ads-Insights-Throttle": "app_id_util_pct, acc_id_util_pct and ads_api_access_tier for the Ads Insights endpoints; the relay does not read it"},
+  "http_status_per_code": "ASSUMED: the pages give the codes and not the HTTP status they arrive with"
+}

@@ -1,0 +1,28 @@
+{
+  "source": ["https://developers.facebook.com/docs/marketing-api/insights (updated Apr 27, 2026)", "https://developers.facebook.com/docs/marketing-api/reference/ad-account/insights (Aug 6, 2026)"],
+  "retrieved": "2026-10-22",
+  "request": "GET https://graph.facebook.com/v26.0/act_<ID>/insights",
+  "latest_graph_version_at_retrieval": "v26.0",
+  "parameters_used_by_the_relay": {
+    "level": "enum {ad, adset, campaign, account}; the relay asks for campaign",
+    "time_increment": "an integer from 1 to 90 gives one result set per N days; the relay asks for 1; ignored if time_ranges is given",
+    "time_range": "a single time range object {since, until}; UNIX timestamps are not supported",
+    "fields": "campaign_id, campaign_name, spend, impressions, clicks, account_currency",
+    "limit": "integer"
+  },
+  "field_types": {
+    "spend": "numeric string; the estimated total amount of money spent",
+    "impressions": "numeric string in the page's example response",
+    "clicks": "numeric string in the page's example response",
+    "account_currency": "string; Currency that is used by your ad account",
+    "date_start": "present on every row; date_stop closes the bucket"
+  },
+  "example_response": {
+    "data": [
+      {"account_id": "<AD_ACCOUNT_ID>", "campaign_id": "<CAMPAIGN_ID>", "date_start": "2025-03-14", "date_stop": "2025-04-12", "impressions": "361324", "spend": "5339.5"}
+    ],
+    "paging": {"cursors": {"before": "MAZDZD", "after": "MAZDZD"}}
+  },
+  "refresh": "Insights refresh every 15 minutes and do not change after 28 days of being reported",
+  "not_stated": "that spend is in account_currency (the likely reading, ASSUMED)"
+}

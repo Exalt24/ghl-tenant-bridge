@@ -1,0 +1,13 @@
+{
+  "source": "https://windsor.ai/api-documentation/",
+  "retrieved": "2026-10-22",
+  "host": "https://connectors.windsor.ai",
+  "authentication": "the api_key query parameter only",
+  "header_authentication": {
+    "supported": false,
+    "examples_named": ["X-Api-Key", "Authorization: Bearer"],
+    "answer": {"error": "Not authorized"}
+  },
+  "required_parameters": ["api_key", "fields"],
+  "page_advice": "rotate the API key periodically if it must not sit in URLs, logs or monitoring systems"
+}

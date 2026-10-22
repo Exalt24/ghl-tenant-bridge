@@ -1,0 +1,13 @@
+{
+  "source": "https://windsor.ai/api-documentation/",
+  "retrieved": "2026-10-22",
+  "success": {
+    "data": [
+      {"date": "2023-01-01", "spend": 125.45, "impressions": 10234, "clicks": 342},
+      {"date": "2023-01-02", "spend": 134.67, "impressions": 11456, "clicks": 389}
+    ]
+  },
+  "error_body": {"error": {"code": "authentication_error", "message": "Invalid API key provided"}},
+  "field_types": {"TEXT": "campaign names, ad titles", "NUMERIC": "spend, impressions, clicks", "DATE": "date field"},
+  "note": "spend is a JSON number in the documented example, so it is parsed with Decimal(str(x))"
+}

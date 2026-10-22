@@ -1,0 +1,11 @@
+{
+  "source": "https://developers.fathom.ai/faq",
+  "retrieved": "2026-10-22",
+  "fires": "once per new meeting, when the recording finalizes (the same event that triggers the summary email)",
+  "no_summary_no_webhook": "webhooks are tied to summary-email delivery, so a call with no post-call summary fires nothing",
+  "retries": "non-2xx responses or timeouts may trigger retries; the schedule and the attempt count are not published",
+  "duplicates": "the same event can be delivered again by automatic retry only; the webhook-id header stays the same, so deduplicate on it",
+  "no_refire": "content updated later, or visibility changed later, does not fire again; poll the API for later updates",
+  "custom_headers": "not possible; only the destination URL, trigger scopes and included data are set",
+  "which_user": "the payload does not identify the user whose key it belongs to; give each user a destination URL of their own"
+}

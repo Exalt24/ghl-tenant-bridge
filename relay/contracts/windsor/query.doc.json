@@ -1,0 +1,11 @@
+{
+  "source": "https://windsor.ai/api-documentation/",
+  "retrieved": "2026-10-22",
+  "template": "https://connectors.windsor.ai/{connector}?fields={field1,field2,...}&api_key={your_api_key}",
+  "example_with_dates": "https://connectors.windsor.ai/facebook?fields=date,spend&date_from=2023-01-01&date_to=2023-01-31&api_key={your_api_key}",
+  "date_from": {"format": "YYYY-MM-DD", "example": "2023-01-01"},
+  "date_to": {"format": "YYYY-MM-DD", "example": "2023-01-31", "default": "today"},
+  "date_presets": ["last_7d", "last_30d", "last_90d", "last_year"],
+  "optional": ["date_preset", "date_from", "date_to", "_max_rows", "filter", "select_accounts", "refresh_since", "refresh_interval", "_renderer"],
+  "connector_used_by_the_relay": "facebook"
+}

@@ -1,0 +1,21 @@
+{
+  "source": "https://developers.fathom.ai/api-reference/openapi.yaml",
+  "retrieved": "2026-10-22",
+  "request": "GET https://api.fathom.ai/external/v1/meetings",
+  "authentication": {"header": "X-Api-Key", "oauth_apps": "Authorization: Bearer"},
+  "parameters_used_by_the_relay": {
+    "include_action_items": "boolean, default false: include the action items for each meeting",
+    "created_after": "string: meetings with created_at after this timestamp, e.g. 2025-01-01T00:00:00Z",
+    "cursor": "string: cursor for pagination",
+    "include_summary": "boolean, default false, a heavy call; unavailable for OAuth connected apps"
+  },
+  "parameters_not_used": ["include_transcript", "include_highlights", "include_crm_matches", "calendar_invitees_domains[]", "recorded_by[]", "teams[]", "meeting_type", "created_before"],
+  "response": {
+    "limit": 1,
+    "next_cursor": "eyJwYWdlX251bSI6Mn0=",
+    "items": "an array of meetings shaped like the webhook payload; action_items, default_summary and transcript are null unless asked for"
+  },
+  "pagination": "responses include a next_cursor; pass it as the cursor query parameter for the next page; next_cursor is null on the last page",
+  "page_size": "10 per page, no larger (the FAQ's statement)",
+  "statuses": {"400": "bad request", "401": "unauthorized", "429": "rate limited"}
+}
