@@ -6,7 +6,7 @@ A Python and Flask service that takes a HighLevel lead delivery and fans it out 
 
 No real vendor account was used for any of it. Every vendor is a local fake written from a saved copy of the vendor's own documentation, so this page claims what the fakes and the tests show and nothing more. Delivery is at least once with a stored outcome per event and sink, and an idempotent effect only where the vendor offers one. It is NOT exactly once: Slack and Make document no idempotency key, so a send that ends in a 5xx or a timeout may post twice, and the Slack footer carries the first 8 characters of the event id so a duplicate is recognisable.
 
-**At a glance** (one full local pass on 2026-10-23, details under Counts): 1912 tests pass on SQLite and Postgres 17, 531 mutants each break one guard and every one is caught by a named failing test, and a container smoke test sends one lead through the built image to a fake Slack. Nothing was run against a real vendor.
+**At a glance** (one full local pass on 2026-10-23, details under Counts): 1912 tests pass on SQLite and Postgres 17, 533 mutants each break one guard and every one is caught by a named failing test, and a container smoke test sends one lead through the built image to a fake Slack. Nothing was run against a real vendor.
 
 ## Register
 
