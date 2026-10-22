@@ -46,3 +46,12 @@ def test_each_transport_failure_maps_to_one_class_and_carries_only_the_httpx_cla
         h.request("POST", URL, body=b"{}", timeout=1.0)
     assert err.value.kind == type(exc).__name__
     assert "SECRETPART" not in str(err.value) and err.value.__cause__ is None and err.value.__suppress_context__
+
+
+def test_a_caller_can_ask_for_more_of_the_reply_than_a_sink_keeps():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="y" * 5000)
+
+    h = Http(httpx.Client(transport=httpx.MockTransport(handler)))
+    assert len(h.request("GET", URL, timeout=1.0).text) == 2000  # control: the default cut
+    assert len(h.request("GET", URL, timeout=1.0, max_text=100000).text) == 5000

@@ -17,6 +17,9 @@ from relay import redact
 from relay.http import Http
 from relay.store.sqlite import SqliteStore
 
+from .fakes.ads import ACCOUNT, TOKEN as INSIGHTS_TOKEN, WINDSOR_KEY, FakeInsights, FakeWindsor, day_rows, windsor_rows
+from .fakes.fathom import API_KEY as FATHOM_KEY
+from .fakes.fathom import FakeFathom, make_meeting
 from .fakes.make import FakeMake
 from .fakes.meta_graph import PIXEL_ID, TOKEN, FakeMeta
 from .fakes.sheets import SPREADSHEET_ID, FakeSheets, service_account_json
@@ -224,3 +227,85 @@ def http():
     h = Http()
     yield h
     h.close()
+
+
+@pytest.fixture(scope="session")
+def _insights_server():
+    s = FakeInsights().start()
+    yield s
+    s.stop()
+
+
+@pytest.fixture(scope="session")
+def _windsor_server():
+    s = FakeWindsor().start()
+    yield s
+    s.stop()
+
+
+@pytest.fixture(scope="session")
+def _fathom_server():
+    s = FakeFathom().start()
+    yield s
+    s.stop()
+
+
+@pytest.fixture
+def insights(_insights_server):
+    """The Insights fake after a POSITIVE CONTROL: a well formed query with the right token returns its rows, with the
+    spend as a string, so no test may rely on a refusal from a fake that rejects everything."""
+    import datetime as _dt
+
+    f = _insights_server
+    f.reset()
+    f.rows = day_rows({"c1": "Campaign one"}, _dt.date(2026, 10, 1), 2)
+    params = {
+        "access_token": INSIGHTS_TOKEN, "level": "campaign", "time_increment": "1", "limit": "25",
+        "fields": "campaign_id,campaign_name,spend,impressions,clicks,account_currency",
+        "time_range": '{"since":"2026-10-01","until":"2026-10-02"}',
+    }
+    res = httpx.get(f"{f.url}/{ACCOUNT}/insights", params=params)
+    body = res.json()
+    assert res.status_code == 200 and len(body["data"]) == 2 and isinstance(body["data"][0]["spend"], str), "positive control failed: the Insights fake rejects a valid query"
+    assert "next" not in body["paging"]
+    f.reset()
+    yield f
+    f.release.set()
+    f.reset()
+
+
+@pytest.fixture
+def windsor(_windsor_server):
+    """The Windsor fake after a positive control: a query with the api_key parameter returns rows with numeric spend."""
+    import datetime as _dt
+
+    f = _windsor_server
+    f.reset()
+    f.rows = windsor_rows({"c1": "Campaign one"}, _dt.date(2026, 10, 1), 2)
+    params = {"api_key": WINDSOR_KEY, "fields": "date,campaign_id,campaign,spend,impressions,clicks,account_currency", "date_from": "2026-10-01", "date_to": "2026-10-02"}
+    res = httpx.get(f"{f.url}/facebook", params=params)
+    body = res.json()
+    assert res.status_code == 200 and len(body["data"]) == 2 and isinstance(body["data"][0]["spend"], float), "positive control failed: the Windsor fake rejects a valid query"
+    f.reset()
+    yield f
+    f.release.set()
+    f.reset()
+
+
+@pytest.fixture
+def fathom(_fathom_server):
+    """The Fathom fake after a positive control: the API key earns a page of meetings and a null next_cursor at the end."""
+    f = _fathom_server
+    f.reset()
+    f.clock = __import__("time").monotonic
+    f.meetings = [make_meeting(1), make_meeting(2)]
+    res = httpx.get(f"{f.url}/meetings", params={"include_action_items": "true"}, headers={"X-Api-Key": FATHOM_KEY})
+    body = res.json()
+    assert res.status_code == 200 and len(body["items"]) == 2 and body["next_cursor"] is None, "positive control failed: the Fathom fake rejects a valid query"
+    assert body["items"][0]["action_items"] and body["items"][0]["default_summary"] is None
+    f.reset()
+    f.clock = __import__("time").monotonic
+    yield f
+    f.release.set()
+    f.reset()
+    f.clock = __import__("time").monotonic

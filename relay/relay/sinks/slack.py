@@ -99,6 +99,40 @@ def build_message(event: Event) -> dict[str, Any]:
     return {"text": truncate_escaped(f"{kind}: {title}", 300), "blocks": blocks}
 
 
+def _cap_header(text: str) -> str:
+    """A header block holds at most 150 characters, and one over it makes Slack refuse the whole message."""
+    return text if len(text) <= MAX_HEADER_CHARS else text[: MAX_HEADER_CHARS - 1] + "…"
+
+
+def build_meeting_message(event: Event) -> dict[str, Any]:
+    """A Fathom meeting (the reduced record the receiver stored): title, summary, action items, and the same footer."""
+    p = event.payload
+    title = p.get("title") if isinstance(p.get("title"), str) and p.get("title") else "untitled meeting"
+    header = _cap_header(f"Meeting: {title}")
+    summary = p.get("summary") if isinstance(p.get("summary"), str) and p.get("summary") else None
+    items = [i for i in (p.get("action_items") or []) if isinstance(i, dict) and isinstance(i.get("description"), str)]
+    lines: list[str] = []
+    if summary:
+        lines.append(truncate_escaped(summary))
+    if items:
+        shown = [
+            f"{'[x]' if i.get('completed') else '[ ]'} {truncate_escaped(i['description'], 200)}"
+            + (f" ({truncate_escaped(i['assignee'], 60)})" if isinstance(i.get("assignee"), str) and i["assignee"] else "")
+            for i in items[:10]
+        ]
+        more = f"\n_and {len(items) - 10} more_" if len(items) > 10 else ""
+        lines.append("*Action items*\n" + "\n".join(shown) + more)
+    if isinstance(p.get("url"), str) and p["url"].startswith("https://"):
+        lines.append(f"*Recording:* {escape(p['url'])}")
+    body = "\n\n".join(lines) or "_no summary or action items in this meeting_"
+    blocks: list[dict[str, Any]] = [
+        {"type": "header", "text": {"type": "plain_text", "text": header}},
+        {"type": "section", "text": _mrkdwn(truncate_escaped_lines(body))},
+        {"type": "context", "elements": [_mrkdwn("event `" + event.event_id[:8] + "` for " + truncate_escaped(event.tenant, 64))]},
+    ]
+    return {"text": truncate_escaped(header, 300), "blocks": blocks}
+
+
 def truncate_escaped_lines(body: str) -> str:
     """The body lines were each escaped already; only the total needs the cap."""
     if len(body) <= SAFE_TEXT_CHARS:
@@ -120,7 +154,8 @@ class SlackSink(Sink):
     default_min_interval_s = 1.0  # docs: about one message per second per channel
 
     def send(self, event: Event, http: HttpLike, ctx: SinkContext) -> Outcome:
-        body = json.dumps(build_message(event), ensure_ascii=False).encode("utf-8")
+        message = build_meeting_message(event) if event.source == "fathom" else build_message(event)
+        body = json.dumps(message, ensure_ascii=False).encode("utf-8")
         try:
             res = http.request(
                 "POST", ctx.url, headers={"Content-Type": "application/json"}, body=body, timeout=ctx.timeout_s

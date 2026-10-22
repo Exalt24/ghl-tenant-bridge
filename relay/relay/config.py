@@ -21,6 +21,7 @@ from typing import Any, Mapping
 from urllib.parse import urlparse
 
 from . import redact
+from .fathom_hook import parse_secret
 from .ghl import GHL_ED25519_SPKI_B64
 from .sinks import registry
 
@@ -30,11 +31,27 @@ TENANT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MIN_TOKEN_CHARS = 16
 DEFAULT_DEDUPE_WINDOW_S = 3600.0
 DEFAULT_MAX_BODY_BYTES = 256 * 1024
-FATHOM_MAX_BODY_BYTES = 2 * 1024 * 1024  # used by tier 3, kept here so every cap lives in one place
+FATHOM_MAX_BODY_BYTES = 2 * 1024 * 1024  # a transcript-enabled payload can be large, a 413 would make Fathom retry
+FATHOM_TOLERANCE_S = 300.0  # Fathom's page says "typically 5 minutes"
+DEFAULT_PULL_DAYS = 28
+MAX_PULL_DAYS = 365
 
 LITERAL_SECRET_KEYS = {"url", "webhook_url", "token", "secret", "apikey", "api_key", "password", "workflow_secret"}
 SINK_KEYS = {"enabled", "url_env", "apikey_env", "timeout_s", "min_interval_s", "pause_s", "max_age_s", "env", "options"}
-TENANT_KEYS = {"workflow_secret_env", "dedupe_window_s", "dedupe_mode", "max_body_bytes", "sinks", "ghl_timestamp_window"}
+TENANT_KEYS = {"workflow_secret_env", "dedupe_window_s", "dedupe_mode", "max_body_bytes", "sinks", "ghl_timestamp_window", "fathom", "pulls"}
+FATHOM_KEYS = {"secret_env", "tolerance_s", "max_body_bytes", "slack"}
+# What each pull may name. `*_env` keys hold the NAME of an environment variable, never a value.
+PULL_KEYS = {
+    "meta_insights": {"base_url_env", "token_env", "account_env", "days", "limit", "timeout_s"},
+    "windsor": {"base_url_env", "api_key_env", "label", "days", "timeout_s"},
+    "fathom": {"base_url_env", "api_key_env", "days", "include_summary", "timeout_s"},
+}
+PULL_REQUIRED_ENV = {
+    "meta_insights": ("base_url_env", "token_env", "account_env"),
+    "windsor": ("base_url_env", "api_key_env"),
+    "fathom": ("base_url_env", "api_key_env"),
+}
+LABEL_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 TOP_KEYS = {"locations", "tenants", "alert_webhook_env", "max_body_bytes", "dedupe_window_s", "ghl_webhook_max_body_bytes"}
 # Identifiers and key material that belong in the environment, never in a file under git (a pixel id and a spreadsheet
 # id are account identifiers, a service account carries a private key). Refused by name inside a sink's `options`.
@@ -65,6 +82,29 @@ class SinkCfg:
 
 
 @dataclass
+class FathomCfg:
+    """The Fathom webhook receiver for one tenant. `secret` is the `whsec_...` value from Fathom, resolved from the environment."""
+
+    secret: str
+    tolerance_s: float
+    max_body_bytes: int
+    slack: bool
+
+
+@dataclass
+class PullCfg:
+    """One ad spend or meeting pull. `key` is the access token or API key (a secret), `account` the ad account or label."""
+
+    name: str
+    base_url: str
+    key: str
+    account: str
+    days: int
+    timeout_s: float
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class TenantCfg:
     name: str
     workflow_secret: str | None
@@ -75,6 +115,8 @@ class TenantCfg:
     # ASSUMED rule, off by default: refuse a direct HighLevel delivery whose `timestamp` is older than 30 days or more
     # than 5 minutes ahead. HighLevel retries up to 12 times and what `timestamp` means on a retry is undocumented.
     ghl_timestamp_window: bool = False
+    fathom: FathomCfg | None = None
+    pulls: dict[str, PullCfg] = field(default_factory=dict)
 
     def enabled_sinks(self) -> list[str]:
         return sorted(n for n, s in self.sinks.items() if s.enabled)
@@ -106,6 +148,10 @@ class Config:
         vals: list[str | None] = [self.ingest_token, self.ingest_token_previous, self.admin_token, self.alert_url]
         for t in self.tenants.values():
             vals.append(t.workflow_secret)
+            if t.fathom is not None:
+                vals.append(t.fathom.secret)
+            for p in t.pulls.values():
+                vals.append(p.key)
             for s in t.sinks.values():
                 vals.extend([s.url, s.apikey, *s.secrets])
         return [v for v in vals if v]
@@ -170,6 +216,60 @@ def _parse_json(source: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ConfigError("RELAY_CONFIG must be a JSON object")
     return data
+
+
+def _parse_fathom(env: Mapping[str, str], raw: Any, tname: str, sinks: dict[str, SinkCfg]) -> FathomCfg | None:
+    if raw is None:
+        return None
+    where = f"tenant {tname} fathom"
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where} must be an object")
+    _check_keys(raw, FATHOM_KEYS, where)
+    secret = _env_value(env, raw.get("secret_env"), f"{where} secret_env")
+    try:
+        parse_secret(secret)
+    except ValueError:
+        raise ConfigError(f"{where}: the secret must be `whsec_` followed by base64 of at least 16 bytes") from None
+    slack = _flag(raw, "slack", where)
+    if slack and not (sinks.get("slack") and sinks["slack"].enabled):
+        raise ConfigError(f"{where}: slack fan-out needs an enabled slack sink for the tenant")
+    cap = int(_positive(raw, "max_body_bytes", FATHOM_MAX_BODY_BYTES, where))
+    return FathomCfg(secret=secret, tolerance_s=_positive(raw, "tolerance_s", FATHOM_TOLERANCE_S, where), max_body_bytes=cap, slack=slack)
+
+
+def _parse_pulls(env: Mapping[str, str], raw: Any, tname: str, live: bool) -> dict[str, PullCfg]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"tenant {tname} pulls must be an object")
+    out: dict[str, PullCfg] = {}
+    for pname, p in raw.items():
+        where = f"tenant {tname} pull {pname}"
+        if pname not in PULL_KEYS:
+            raise ConfigError(f"tenant {tname}: unknown pull `{pname}`")
+        if not isinstance(p, dict):
+            raise ConfigError(f"{where} must be an object")
+        _check_keys(p, PULL_KEYS[pname], where)
+        values = {k: _env_value(env, p.get(k), f"{where} {k}") for k in PULL_REQUIRED_ENV[pname]}
+        base_url = values["base_url_env"]
+        check_base_url(base_url, live, f"{where} base url")
+        key = values.get("token_env") or values["api_key_env"]
+        account = values.get("account_env") or str(p.get("label", "default"))
+        if pname == "windsor" and not LABEL_RE.fullmatch(account):
+            raise ConfigError(f"{where}: label must be letters, digits, . _ - up to 64 characters")
+        days = int(_positive(p, "days", DEFAULT_PULL_DAYS, where))
+        if days > MAX_PULL_DAYS:
+            raise ConfigError(f"{where}: days must be at most {MAX_PULL_DAYS}")
+        extra: dict[str, Any] = {}
+        if pname == "meta_insights":
+            extra["limit"] = int(_positive(p, "limit", 500, where))
+        if pname == "fathom":
+            extra["include_summary"] = _flag(p, "include_summary", where)
+        out[pname] = PullCfg(
+            name=pname, base_url=base_url, key=key, account=account, days=days,
+            timeout_s=_positive(p, "timeout_s", 30.0, where), extra=extra,
+        )
+    return out
 
 
 def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> Config:
@@ -278,6 +378,8 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
             max_body_bytes=int(_positive(t, "max_body_bytes", default_cap, f"tenant {tname}")),
             sinks=sinks,
             ghl_timestamp_window=_flag(t, "ghl_timestamp_window", f"tenant {tname}"),
+            fathom=_parse_fathom(env, t.get("fathom"), tname, sinks),
+            pulls=_parse_pulls(env, t.get("pulls"), tname, live),
         )
 
     locations = raw.get("locations") or {}

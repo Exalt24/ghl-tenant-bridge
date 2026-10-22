@@ -10,6 +10,12 @@
       "sinks": {
         "slack": {"url_env": "ACME_SLACK_URL"},
         "make": {"url_env": "ACME_MAKE_URL", "apikey_env": "ACME_MAKE_KEY"}
+      },
+      "fathom": {"secret_env": "ACME_FATHOM_SECRET", "slack": true},
+      "pulls": {
+        "meta_insights": {"base_url_env": "ACME_INSIGHTS_BASE_URL", "token_env": "ACME_INSIGHTS_TOKEN", "account_env": "ACME_AD_ACCOUNT"},
+        "windsor": {"base_url_env": "ACME_WINDSOR_BASE_URL", "api_key_env": "ACME_WINDSOR_KEY", "label": "main"},
+        "fathom": {"base_url_env": "ACME_FATHOM_BASE_URL", "api_key_env": "ACME_FATHOM_KEY"}
       }
     }
   }

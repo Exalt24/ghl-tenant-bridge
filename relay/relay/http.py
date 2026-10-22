@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
-MAX_BODY_TEXT = 2000
+MAX_BODY_TEXT = 2000  # what a sink keeps of a reply: enough to read an error name, never a whole page
+PULL_BODY_TEXT = 16 * 1024 * 1024  # a pull needs the whole page of rows, so it asks for a larger cut
 
 
 class HttpError(Exception):
@@ -53,6 +54,7 @@ class Http:
         headers: dict[str, str] | None = None,
         body: bytes | None = None,
         timeout: float,
+        max_text: int = MAX_BODY_TEXT,
     ) -> HttpResult:
         try:
             res = self._client.request(method, url, headers=headers, content=body, timeout=timeout)
@@ -66,7 +68,7 @@ class Http:
         return HttpResult(
             status=res.status_code,
             headers={k.lower(): v for k, v in res.headers.items()},
-            text=res.text[:MAX_BODY_TEXT],
+            text=res.text[:max_text],
         )
 
     def close(self) -> None:

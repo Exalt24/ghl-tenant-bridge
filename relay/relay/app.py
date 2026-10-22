@@ -22,7 +22,7 @@ from typing import Any, Callable
 from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from . import fanout, ghl, redact
+from . import fanout, fathom_hook, ghl, redact
 from .config import Config, load_config
 from .fanout import Unrouted
 from .http import Http
@@ -221,6 +221,45 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
             return _err(503, "unrouted")
         except Exception as exc:
             log.error("direct webhook ingest failed before commit: %s", type(exc).__name__)
+            return _err(503, "store")
+        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})
+
+    @app.post("/webhooks/fathom/<tenant>")
+    def fathom_route(tenant: str) -> Response:
+        """A Fathom webhook (Standard Webhooks). Verified over the raw bytes first; the meeting is stored in the SAME
+        transaction as its event, keyed on `webhook-id` (Fathom keeps it the same when it resends), so a retry is a
+        suppressed duplicate and a crash can never leave one without the other."""
+        tcfg = cfg.tenants.get(tenant)
+        fcfg = tcfg.fathom if tcfg else None
+        if fcfg is None:
+            return _err(401, "unauthorised")  # an unknown tenant answers like a bad signature, so the route names no tenant
+        raw = read_body(fcfg.max_body_bytes)
+        problem = fathom_hook.verify(fathom_hook.parse_secret(fcfg.secret), request.headers, raw, deps.clock(), fcfg.tolerance_s)
+        if problem is not None:
+            return _err(401, problem)
+        try:
+            doc = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _err(400, "not-json")
+        meeting = fathom_hook.normalise_meeting(doc)
+        if meeting is None:
+            return _err(400, "recording_id-required")
+        message_id = request.headers["webhook-id"]
+        sinks = ["slack"] if fcfg.slack else []
+
+        def keep_meeting(t: Any) -> None:
+            store.save_meeting(
+                t, tenant=tenant, recording_id=meeting["recording_id"], title=meeting["title"], summary=meeting["summary"],
+                action_items=fathom_hook.action_items_text(meeting),
+            )
+
+        try:
+            result = store.ingest(
+                key=message_id, tenant=tenant, source="fathom", basis=ghl.BASIS_NATIVE,
+                payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=keep_meeting,
+            )
+        except Exception as exc:
+            log.error("fathom ingest failed before commit: %s", type(exc).__name__)
             return _err(503, "store")
         return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})
 

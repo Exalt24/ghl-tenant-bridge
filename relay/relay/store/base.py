@@ -166,8 +166,12 @@ class SqlStore:
         payload: str,
         sinks: list[str],
         window_s: float | None = None,
+        on_new: Callable[[Any], None] | None = None,
     ) -> IngestResult:
         """ONE transaction: the event row, one delivery row per enabled sink, or a `suppressed` row for a duplicate.
+
+        `on_new(t)` runs inside the same transaction when (and only when) a new event row was inserted. The Fathom receiver
+        uses it to store the meeting beside the event, so a crash can never leave one without the other.
 
         window_s None means a native key: the primary key alone decides, forever. A number means a derived key: an
         identical event inside the window is suppressed, an older one becomes a NEW event `<key>|<seq>`.
@@ -196,6 +200,8 @@ class SqlStore:
                 return IngestResult(event_id, True)
             self._fault("ingest_after_event")
             self._add_deliveries(t, event_id, tenant, sinks)
+            if on_new is not None:
+                on_new(t)
             return IngestResult(event_id, False)
 
     def _suppress(self, t: Any, event_id: str, basis: str, tenant: str) -> None:
@@ -397,6 +403,56 @@ class SqlStore:
             return t.execute(
                 f"UPDATE events SET payload = NULL WHERE payload IS NOT NULL AND received_at <= {self.now(-older_than_days * 86400.0)}"
             ).rowcount
+
+    # ---- ad spend and meetings (tier 3) --------------------------------------------------------------------------
+    def upsert_spend(self, rows: list[dict[str, Any]]) -> int:
+        """Insert or refresh daily spend rows on their primary key (source, account, campaign, day), in ONE transaction, so a
+        28 day re-pull replaces yesterday's figures and never stacks a second copy."""
+        with self.tx() as t:
+            for r in rows:
+                t.execute(
+                    f"INSERT INTO spend_daily (source, account, campaign_id, day, spend_minor, currency, impressions, clicks, pulled_at) "
+                    f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, {self.now()}) "
+                    f"ON CONFLICT (source, account, campaign_id, day) DO UPDATE SET spend_minor = excluded.spend_minor, "
+                    f"currency = excluded.currency, impressions = excluded.impressions, clicks = excluded.clicks, "
+                    f"pulled_at = excluded.pulled_at",
+                    (r["source"], r["account"], r["campaign_id"], r["day"], r["spend_minor"], r["currency"], r.get("impressions"), r.get("clicks")),
+                )
+        return len(rows)
+
+    def spend_rows(self, source: str | None = None) -> list[dict[str, Any]]:
+        with self.tx(write=False) as t:
+            if source is None:
+                return self._rows(t.execute("SELECT * FROM spend_daily ORDER BY source, account, campaign_id, day"))
+            return self._rows(t.execute("SELECT * FROM spend_daily WHERE source = ? ORDER BY account, campaign_id, day", (source,)))
+
+    def save_meeting(
+        self, t: Any, *, tenant: str, recording_id: str, title: str | None, summary: str | None, action_items: str | None
+    ) -> None:
+        """Insert a meeting, or refresh it for the SAME tenant. A summary or action items already stored are kept when the new
+        copy has none (the puller asks for less than the webhook carries). Another tenant's row is never touched."""
+        t.execute(
+            f"INSERT INTO fathom_meetings (recording_id, tenant, title, summary, action_items, received_at) "
+            f"VALUES (?, ?, ?, ?, ?, {self.now()}) "
+            f"ON CONFLICT (recording_id) DO UPDATE SET title = excluded.title, "
+            f"summary = COALESCE(excluded.summary, fathom_meetings.summary), "
+            f"action_items = COALESCE(excluded.action_items, fathom_meetings.action_items) "
+            f"WHERE fathom_meetings.tenant = excluded.tenant",
+            (recording_id, tenant, title, summary, action_items),
+        )
+
+    def upsert_meetings(self, tenant: str, meetings: list[dict[str, Any]]) -> int:
+        with self.tx() as t:
+            for m in meetings:
+                self.save_meeting(
+                    t, tenant=tenant, recording_id=m["recording_id"], title=m.get("title"), summary=m.get("summary"),
+                    action_items=m.get("action_items"),
+                )
+        return len(meetings)
+
+    def meetings(self) -> list[dict[str, Any]]:
+        with self.tx(write=False) as t:
+            return self._rows(t.execute("SELECT * FROM fathom_meetings ORDER BY recording_id"))
 
     # ---- one append in flight per key ----------------------------------------------------------------------------
     @contextmanager

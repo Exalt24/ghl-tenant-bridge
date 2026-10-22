@@ -113,3 +113,26 @@ def test_a_worker_with_one_registered_sink_still_runs(store, slack, make):
     r = ingest_one(store, cfg)
     rig.settle()
     assert store.delivery(r.event_id, "slack")["state"] == "done"
+
+
+def test_purge_keeps_the_event_row_so_a_late_retry_is_still_a_duplicate_and_leaves_young_events_whole(store, slack, make):
+    env = worker_env(slack.url, make.url)
+    cfg = load_config(env, role="worker_once")
+    old = ingest_one(store, cfg, payload(1), key="old-key")
+    store.advance(31 * 86400)
+    young = ingest_one(store, cfg, payload(2), key="young-key")
+    assert main(["--purge"], environ=env, http=Http(), store=store) == 0
+    assert store.get_event(old.event_id)["payload"] is None and store.get_event(young.event_id)["payload"] is not None
+    retry = ingest_one(store, cfg, payload(1), key="old-key")  # the sender retries after the payload was nulled
+    assert retry.duplicate is True and len(store.events()) == 2 and len(store.deliveries(old.event_id)) == 2
+    assert main(["--purge"], environ=env, http=Http(), store=store) == 0  # a second purge finds nothing more
+    assert store.get_event(young.event_id)["payload"] is not None
+
+
+def test_purge_sends_nothing_and_leaves_pending_deliveries_pending(store, slack, make):
+    env = worker_env(slack.url, make.url)
+    cfg = load_config(env, role="worker_once")
+    r = ingest_one(store, cfg)
+    store.advance(31 * 86400)
+    assert main(["--purge"], environ=env, http=Http(), store=store) == 0
+    assert slack.effects == 0 and {d["state"] for d in store.deliveries(r.event_id)} == {"pending"}  # purge sends nothing
