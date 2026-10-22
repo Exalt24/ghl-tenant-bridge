@@ -393,6 +393,30 @@ def test_creating_the_app_installs_the_log_mask_and_registers_the_secrets(store,
     assert slack.url not in text and INGEST_TOKEN not in text and "***" in text
 
 
+def test_create_app_registers_the_secrets_itself_even_if_the_registry_was_empty(store, slack, make):
+    cfg = make_cfg(slack.url, make.url)
+    redact.forget_all()
+    assert redact.mask(f"x {INGEST_TOKEN} y") == f"x {INGEST_TOKEN} y"
+    create_app(cfg, Deps(store=store))
+    assert redact.mask(f"x {INGEST_TOKEN} y {slack.url}") == "x *** y ***"
+
+
+def test_a_secret_inside_a_store_error_reaches_neither_the_response_nor_the_log(store, slack, make, caplog, monkeypatch):
+    redact.uninstall()
+    cfg = make_cfg(slack.url, make.url)
+    redact.forget_all()
+    client = create_app(cfg, Deps(store=store)).test_client()  # the app alone must install the mask and register the secrets
+    assert post_ingest(client, payload(), key="control-1").status_code == 200  # positive control
+    boom = RuntimeError(f"connection to {slack.url} failed with token {INGEST_TOKEN}")
+    monkeypatch.setattr(store, "ingest", lambda **kw: (_ for _ in ()).throw(boom))
+    with caplog.at_level(logging.DEBUG):
+        res = post_ingest(client, payload(), key="leaky-1")
+        logging.getLogger("relay.app").error("store said: %s", boom)  # a careless log line elsewhere is still masked
+    assert res.status_code == 503
+    seen = res.get_data(as_text=True) + "\n".join(r.getMessage() + (r.exc_text or "") for r in caplog.records)
+    assert slack.url not in seen and INGEST_TOKEN not in seen and "***" in seen
+
+
 def test_the_inline_worker_delivers_without_a_separate_process(store, slack, make):
     env = env_for(slack.url, make.url, RELAY_INLINE_WORKER="1", RELAY_WORKER_INTERVAL_S="0.05")
     env["RELAY_CONFIG"] = config_json(make=False)

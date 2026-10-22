@@ -137,6 +137,29 @@ def test_slack_header_and_block_count_stay_inside_the_documented_limits(slack, h
     assert SlackSink().send(event_for(p), http, ctx(slack.url)).kind == DONE
 
 
+def test_slack_block_budget_holds_for_a_lead_with_far_more_answers_than_normalise_allows(slack, http):
+    lead = ghl.normalise_lead(payload())
+    lead["answers"] = {f"question {i}": f"answer {i}" for i in range(120)}
+    event = Event(event_id="a1b2c3d4e5f60718", tenant="acme", source="ingest", payload={}, lead=lead)
+    msg = build_message(event)
+    assert len(msg["blocks"]) == 50 and "73 more answers not shown" in msg["blocks"][-1]["elements"][0]["text"]
+    for b in msg["blocks"]:
+        if b["type"] == "section":
+            assert len(b["text"]["text"]) <= 3000
+    assert SlackSink().send(event, http, ctx(slack.url)).kind == DONE
+
+
+def test_a_long_answer_that_is_plain_text_still_gets_the_truncation_note(slack, http):
+    # 3000 plain characters escape to 3000 (nothing to escape), over the 2800 cap: it must be cut AND say so.
+    # Cutting before escaping would see 2800 characters, find them under the cap and drop the note silently.
+    assert truncate_escaped("x" * 3000).endswith("the full payload is stored by the relay)")
+    assert truncate_escaped("x" * 2800) == "x" * 2800
+    out = SlackSink().send(event_for(payload(question="y" * 3000)), http, ctx(slack.url))
+    assert out.kind == DONE
+    sections = [b["text"]["text"] for b in slack.requests[0]["json"]["blocks"] if b["type"] == "section"]
+    assert any("truncated" in s for s in sections)
+
+
 @pytest.mark.parametrize("sink_cls,fake_fixture", [(SlackSink, "slack"), (MakeSink, "make")])
 def test_a_lead_with_every_optional_field_missing_still_sends(request, http, sink_cls, fake_fixture):
     fake = request.getfixturevalue(fake_fixture)

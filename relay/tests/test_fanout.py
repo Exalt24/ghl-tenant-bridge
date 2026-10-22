@@ -251,6 +251,36 @@ def test_a_lead_that_a_vendor_keeps_rate_limiting_dies_by_age_not_by_attempts(st
     assert d["attempts"] == 0 and d["retries"] > 10
 
 
+def test_run_one_itself_refuses_a_row_older_than_the_sink_limit(store, slack, make):
+    from relay.fanout import RunContext, process_next
+    from relay.sinks.registry import build_registry
+
+    cfg = make_cfg(slack.url, make.url, make_extra={"enabled": False})
+    r = ingest_one(store, cfg)
+    store.advance(73 * 3600)  # nothing has run expire_old, only the claim path can notice the age
+    ctx = RunContext(store=store, cfg=cfg, registry=build_registry(), http=None)
+    assert process_next(ctx, "slack") is True
+    d = store.delivery(r.event_id, "slack")
+    assert d["state"] == "dead" and d["last_error"] == "expired: older than 72 hours" and slack.requests == []
+
+
+def test_a_rate_limit_holds_back_the_whole_channel_not_only_the_row_that_hit_it(store, slack, make):
+    cfg = make_cfg(slack.url, make.url, make_extra={"enabled": False})
+    rig = make_rig(store, cfg)
+    ingest_one(store, cfg, payload(1))
+    ingest_one(store, cfg, payload(2))
+    slack.retry_after = 30
+    slack.queue("rate_limit")
+    rig.worker.run_once(wait_horizon_s=0)
+    assert len(slack.requests) == 1
+    store.advance(5)  # past the one second interval, inside Slack's 30 second request
+    rig.worker.run_once(wait_horizon_s=0)
+    assert len(slack.requests) == 1  # the second lead did not go out into a channel that said wait
+    store.advance(30)
+    rig.settle()
+    assert slack.effects == 2
+
+
 def test_a_permanent_4xx_goes_dead_on_the_first_try_with_an_alert(store, slack, make):
     cfg = make_cfg(slack.url, make.url, slack_extra={"enabled": False}, make_extra={})
     rig = make_rig(store, cfg)
@@ -349,6 +379,8 @@ def test_the_circuit_breaker_stops_hammering_a_failing_vendor_then_probes_once(s
     store.advance(61)
     rig.settle(max_rounds=300)
     assert slack.effects == 20
+    st = store.sink_state(TENANT, "slack")
+    assert st["consecutive_failures"] == 0 and not st["breaker_open"]  # a success closes the breaker again
 
 
 def test_the_minimum_interval_spaces_sends_in_database_time_without_sleeping(store, slack, make, record_sleeps):

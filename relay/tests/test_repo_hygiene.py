@@ -113,9 +113,12 @@ def test_requirements_are_exact_pins():
 
 def test_ci_has_a_relay_job_with_postgres_and_every_action_pinned_by_sha():
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    job = ci[ci.index("\n  relay:"):]
+    job = ci[ci.index("\n  relay:"):ci.index("\n  # The mutants are split")]
     assert "working-directory: relay" in job and "image: postgres:17" in job and "timeout-minutes: 10" in job
-    assert "python tests/mutants.py" in job and "python -m pytest" in job and 'RELAY_REQUIRE_POSTGRES: "1"' in job
+    assert "python -m pytest" in job and 'RELAY_REQUIRE_POSTGRES: "1"' in job and "docker build" in job
+    mutants = ci[ci.index("\n  relay-mutants:"):]
+    assert "shard: [1, 2, 3]" in mutants and "tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/3" in mutants
+    assert "image: postgres:17" in mutants and "timeout-minutes: 10" in mutants
     uses = re.findall(r"uses:\s*(\S+)", ci)
     assert uses and all(re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", u) for u in uses), uses
     assert any(u.startswith("actions/setup-python@") for u in uses)

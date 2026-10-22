@@ -1,3 +1,4 @@
+# LIFESPAN: permanent (the mutation check for relay/, run by CI on every push and by hand after any guard change)
 """Mutation check for relay/.
 
 Each mutant copies the package, changes ONE guard (a text edit whose pattern must occur exactly once), runs the suite,
@@ -356,15 +357,35 @@ def run_one(mutant: Mutant) -> tuple[str, str]:
         try:
             targeted = pytest(root, mutant.tests, mutant.stores, [f"--deselect={t}" for t in SLOW_TESTS])
             if targeted.returncode != 0:
-                if COLLECTION_ERROR.search(targeted.stdout):
-                    return "BROKEN", "the mutated tree does not collect (an import error is not a catch)"
-                return "caught", first_failure(targeted.stdout)
+                return judge(targeted, mutant.stores, "")
             full = pytest(root, [], mutant.stores)
             if full.returncode != 0:
-                return "caught", "only by the full suite: " + first_failure(full.stdout)
+                return judge(full, mutant.stores, "only by the full suite: ")
         except subprocess.TimeoutExpired:
-            return "caught", f"timed out after {RUN_TIMEOUT_S}s (a hang counts as a failure, but investigate)"
+            return "BROKEN", f"timed out after {RUN_TIMEOUT_S}s: a hang is not a named failing test"
         return "SURVIVED", "the whole suite stayed green"
+
+
+FAILED_LINE = re.compile(r"^FAILED (\S+)", re.MULTILINE)
+PRISTINE: Path | None = None  # an unmutated copy, made once per run; a catching test must pass there
+
+
+def judge(result: subprocess.CompletedProcess, stores: str, prefix: str) -> tuple[str, str]:
+    """A mutant counts as caught only when a NAMED TEST FAILS for the mutated behaviour: not when the tree fails to
+    import or collect, not when a fixture errors, not when pytest cannot find a file. The named test must also pass on
+    the unmutated tree, otherwise it was red for some other reason and caught nothing."""
+    out = result.stdout
+    if COLLECTION_ERROR.search(out):
+        return "BROKEN", "the mutated tree does not collect (an import error is not a catch)"
+    named = FAILED_LINE.search(out)
+    if named is None:
+        return "BROKEN", "pytest failed without a failing test (a setup error or a missing file is not a catch): " + first_failure(out)
+    node = named.group(1)
+    assert PRISTINE is not None
+    again = pytest(PRISTINE, [node], stores)
+    if again.returncode != 0:
+        return "BROKEN", f"{node} also fails on the unmutated tree, so it proves nothing"
+    return "caught", prefix + "by " + node
 
 
 def baseline(groups: list[tuple[tuple[str, ...], str]]) -> list[str]:
@@ -385,10 +406,13 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="only verify every pattern occurs exactly once")
     ap.add_argument("--only", default="")
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--shard", default="1/1", help="i/n: run every n-th mutant starting at i, so CI can split the list")
     ap.add_argument("--no-baseline", action="store_true", help="skip the unmutated runs (CI has just run the whole suite)")
     args = ap.parse_args()
 
     selected = [m for m in MUTANTS if args.only in m.name or args.only in m.file]
+    index, count = (int(x) for x in args.shard.split("/"))
+    selected = selected[index - 1 :: count]
     if args.list:
         for m in selected:
             print(m.name)
@@ -418,15 +442,18 @@ def main() -> int:
             print("\n".join("  " + f for f in failures))
             return 1
 
+    global PRISTINE
     problems = 0
     not_run = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for mutant, (status, detail) in zip(selected, pool.map(run_one, selected)):
-            print(f"{status:<9} {mutant.name}" + ("" if status == "caught" else f"  ({detail})"), flush=True)
-            if status == "NOT RUN":
-                not_run += 1
-            elif status != "caught":
-                problems += 1
+    with tempfile.TemporaryDirectory(prefix="relay-pristine-") as pristine_dir:
+        PRISTINE = copy_tree(Path(pristine_dir))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            for mutant, (status, detail) in zip(selected, pool.map(run_one, selected)):
+                print(f"{status:<9} {mutant.name}  ({detail})", flush=True)
+                if status == "NOT RUN":
+                    not_run += 1
+                elif status != "caught":
+                    problems += 1
     today = datetime.date.today().isoformat()
     if problems:
         print(f"\n{problems} PROBLEM(S) in {len(selected)} mutants, run {today}")

@@ -69,8 +69,6 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Suite on SQLite and Postgres
         run: python -m pytest -q
-      - name: Mutants, each must be caught
-        run: python tests/mutants.py --no-baseline
       - name: Build the image and boot it
         run: |
           docker build -t relay-ci .
@@ -78,3 +76,40 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
           curl -fsS http://127.0.0.1:8000/health
           docker rm -f relay-ci
+
+  # The mutants are split across three runners so the whole list fits the time limit with room to spare. Every mutant
+  # still runs: shard i of 3 takes every third mutant starting at i, and each must be caught by a named failing test.
+  relay-mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: relay
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: pw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL_TEST: postgresql://postgres:pw@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: relay/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Mutants, shard ${{ matrix.shard }} of 3, each must be caught
+        run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/3

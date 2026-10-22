@@ -45,8 +45,8 @@ def test_the_wait_budget_stops_a_run_that_a_vendor_keeps_rate_limiting(store, sl
     cfg = make_cfg(slack.url, make.url, make_extra={"enabled": False})
     rig = make_rig(store, cfg)
     ingest_one(store, cfg)
-    slack.mode = "rate_limit"
     slack.retry_after = 1
+    slack.queue(*["rate_limit"] * 60)  # a long streak, then the vendor recovers (so a broken budget ends, and fails below)
     rig.worker.run_once(wait_horizon_s=60, max_total_wait_s=10)
     sends = len(slack.requests)
     assert 2 <= sends <= 12, sends  # it tried for about 10 simulated seconds, then gave the run back

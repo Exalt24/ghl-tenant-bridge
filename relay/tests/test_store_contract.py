@@ -190,6 +190,19 @@ def test_the_final_write_is_conditional_on_the_claim_token(store):
     assert len(store.attempts_for("st", "slack")) == 1  # the stale write left no attempts row either
 
 
+def test_a_stale_worker_cannot_finish_a_row_a_newer_worker_still_holds(store):
+    """The token check on its own: the row is still pending (the newer worker has not finished), so only the token tells
+    the stale worker's write from the holder's."""
+    put(store, key="held", sinks=["slack"])
+    stale = store.claim("slack", lease_s=300)
+    store.advance(301)
+    fresh = store.claim("slack", lease_s=300)
+    assert store.finish(stale, done_plan()) is False
+    row = store.delivery("held", "slack")
+    assert row["state"] == "pending" and row["claim_token"] == fresh.token and store.attempts_for("held", "slack") == []
+    assert store.finish(fresh, done_plan()) is True
+
+
 def test_the_final_write_ignores_a_row_that_is_no_longer_pending(store):
     put(store, key="np", sinks=["slack"])
     c = store.claim("slack", lease_s=300)
@@ -401,6 +414,51 @@ def test_concurrent_claims_never_hand_out_a_row_twice(store):
     [t.start() for t in threads]
     [t.join(60) for t in threads]
     assert sorted(claimed) == sorted(f"c{i:02d}" for i in range(total))  # every row exactly once
+
+
+def test_overlapping_claims_skip_a_row_another_worker_is_taking_instead_of_coming_back_empty(store):
+    n = 8
+    for i in range(n + 4):
+        put(store, key=f"o{i:02d}", sinks=["slack"])
+    barrier = threading.Barrier(n)
+    got: list = []
+    lock = threading.Lock()
+
+    def one_claim():
+        barrier.wait()
+        c = store.claim("slack", lease_s=600)
+        with lock:
+            got.append(c)
+
+    threads = [threading.Thread(target=one_claim) for _ in range(n)]
+    [t.start() for t in threads]
+    [t.join(60) for t in threads]
+    assert all(c is not None for c in got), "a claimer found nothing although unclaimed rows remained"
+    assert len({c.event_id for c in got}) == n
+
+
+def test_a_claim_skips_a_row_locked_by_another_connection_without_waiting_for_it(store):
+    """Deterministic version of the SKIP LOCKED guarantee: a second connection holds the first row's lock open and a
+    claim must come back with a DIFFERENT row at once. Without SKIP LOCKED the claim queues behind the lock; the
+    lock_timeout turns that into an error in about a second instead of a hang."""
+    if store.dialect != "postgres":
+        pytest.skip("row locks that a claim must skip are a Postgres behaviour (SQLite serialises writers)")
+    import psycopg
+
+    for key in ("lk1", "lk2", "lk3"):
+        put(store, key=key, sinks=["slack"])
+    holder = psycopg.connect(store.url, options=f"-c search_path={store.schema}")
+    try:
+        holder.execute("BEGIN")
+        holder.execute("SELECT 1 FROM deliveries WHERE event_id = %s FOR UPDATE", ("lk1",))  # the row a claim would pick first
+        with store.tx() as t:
+            t.execute("SET LOCAL lock_timeout = '1500ms'")
+            claim = store.claim("slack", lease_s=300)
+        assert claim is not None and claim.event_id != "lk1"
+    finally:
+        holder.rollback()
+        holder.close()
+    assert store.delivery("lk1", "slack")["claim_token"] is None  # the locked row was left alone, not claimed
 
 
 def test_due_in_s_reports_none_zero_and_the_wait(store):
