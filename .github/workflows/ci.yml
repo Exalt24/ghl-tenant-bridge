@@ -39,7 +39,7 @@ jobs:
 
   relay:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: relay
@@ -69,23 +69,22 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Suite on SQLite and Postgres
         run: python -m pytest -q
-      - name: Build the image and boot it
+      - name: README claims match the fixtures
+        run: python tools/check_readme_claims.py
+      - name: Build the image and send one lead through it
         run: |
           docker build -t relay-ci .
-          docker run -d --name relay-ci -p 8000:8000 -e RELAY_ENV=dev -e RELAY_INGEST_TOKEN=ci-ingest-token-0123456789 relay-ci
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/health && break; sleep 1; done
-          curl -fsS http://127.0.0.1:8000/health
-          docker rm -f relay-ci
+          python tools/container_smoke.py
 
-  # The mutants are split across five runners so the whole list fits the time limit with room to spare. Every mutant
-  # still runs: shard i of 5 takes every fifth mutant starting at i, and each must be caught by a named failing test.
+  # The mutants are split across eight runners so the whole list fits the time limit with room to spare. Every mutant
+  # still runs: shard i of 8 takes every eighth mutant starting at i, and each must be caught by a named failing test.
   relay-mutants:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     defaults:
       run:
         working-directory: relay
@@ -111,5 +110,5 @@ jobs:
           cache: pip
           cache-dependency-path: relay/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: Mutants, shard ${{ matrix.shard }} of 5, each must be caught
-        run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/5
+      - name: Mutants, shard ${{ matrix.shard }} of 8, each must be caught
+        run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/8
