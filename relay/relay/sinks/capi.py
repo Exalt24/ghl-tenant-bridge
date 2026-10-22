@@ -194,7 +194,7 @@ class CapiSink(Sink):
             "click_id_sources": list(sources),
             "default_country_code": cc,
             "currency": currency,
-            "send_live": wants_live and live,
+            "send_live": wants_live,  # live without RELAY_LIVE was refused above, so this is never true by accident
             "test_event_code": code,
         }
 

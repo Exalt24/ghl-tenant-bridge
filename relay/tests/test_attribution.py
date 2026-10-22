@@ -132,6 +132,7 @@ def test_zip_is_lowercase_without_spaces_or_dashes_and_a_us_zip_is_five_digits()
     assert at.norm_zip("M1 1AE", "GB") == "m11ae"
     assert at.norm_zip("SW1A 1AA") == "sw1a1aa"  # no country, but not shaped like a US zip: only lowercased and unspaced
     assert at.norm_zip("75018", "FR") == "75018"
+    assert at.norm_zip("1234-567", "AU") == "1234567" and at.norm_zip("M1-1AE", "GB") == "m11ae"  # a dash goes outside the US too
     assert at.hashed_user_data({"postal_code": "M1 1AE", "country": "GB"})["zp"] == sha("m11ae")
 
 

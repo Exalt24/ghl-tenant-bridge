@@ -197,8 +197,8 @@ MUTANTS: list[Mutant] = [
     M("the wait budget of a one-shot run is removed", WRK,
       ("                if waited + wait > max_total_wait_s:", "                if False:"), tests=["tests/test_worker.py"]),
     M("sinks wait for each other (a barrier between sinks)", WRK,
-      ("            total = sum(pool.map(lambda s: self._drain_sink(s, wait_horizon_s, max_total_wait_s), sinks))",
-       "            total = 0\n            for s in sinks:\n                total += pool.submit(self._drain_sink, s, wait_horizon_s, max_total_wait_s).result()"),
+      ("            total = sum(pool.map(lambda s: self._drain_sink_and_release(s, wait_horizon_s, max_total_wait_s), sinks))",
+       "            total = 0\n            for s in sinks:\n                total += pool.submit(self._drain_sink_and_release, s, wait_horizon_s, max_total_wait_s).result()"),
       tests=T_FAN),
     M("a config error makes the worker exit 0", WRK, ("        return 2\n    redact.install()", "        return 0\n    redact.install()"), tests=["tests/test_worker.py"]),
     M("the alert digest is not rate limited", ALR,
@@ -359,7 +359,6 @@ MUTANTS: list[Mutant] = [
     M("CAPI test_event_code is never sent", CAP, ('        if not ctx.extra["send_live"]:\n            body["test_event_code"] = ctx.extra["test_event_code"]', "        if False:\n            body[\"test_event_code\"] = ctx.extra[\"test_event_code\"]"), tests=T_CAPI),
     M("CAPI test_event_code is sent even when live", CAP, ('        if not ctx.extra["send_live"]:\n            body["test_event_code"]', '        if True:\n            body["test_event_code"]'), tests=T_CAPI),
     M("CAPI live is allowed without RELAY_LIVE", CAP, ('        if wants_live and not live:\n            raise ValueError("live is true but RELAY_LIVE is not 1")', "        if False:\n            raise ValueError(\"live is true but RELAY_LIVE is not 1\")"), tests=T_CAPI),
-    M("CAPI live is decided by the tenant alone", CAP, ('            "send_live": wants_live and live,', '            "send_live": wants_live,'), tests=T_CAPI),
     M("CAPI test mode needs no code", CAP, ("        if not wants_live and not code:", "        if False:"), tests=T_CAPI),
     M("CAPI action_source is always website", CAP, ('"action_source": "website" if ("client_user_agent" in user_data and url) else "system_generated",', '"action_source": "website",'), tests=T_CAPI),
     M("CAPI website needs only a user agent", CAP, ('if ("client_user_agent" in user_data and url) else', 'if "client_user_agent" in user_data else'), tests=T_CAPI),
@@ -583,7 +582,9 @@ def run_one(mutant: Mutant) -> tuple[str, str]:
         return "SURVIVED", "the whole suite stayed green"
 
 
-FAILED_LINE = re.compile(r"^FAILED (\S+)", re.MULTILINE)
+# A parameter id can hold spaces ("test_x[(650) 555-1212-None-None]"), so the id runs to the closing bracket and not to the
+# first space. Pytest appends " - <message>" after it, which is not part of the id.
+FAILED_LINE = re.compile(r"^FAILED (\S+?\[.*?\](?= - |$)|\S+)", re.MULTILINE)
 PRISTINE: Path | None = None  # an unmutated copy, made once per run; a catching test must pass there
 
 

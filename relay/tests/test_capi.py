@@ -480,6 +480,9 @@ def test_a_5xx_and_a_timeout_are_plain_retries_never_ambiguous_because_a_repeat_
     assert out.kind == RETRY and out.status == 500 and at_now.effects == 1  # Meta kept the event and answered 500
     again = send(at_now)  # the retry: same event_id and name
     assert again.kind == DONE and at_now.effects == 1  # one event at Meta after two sends
+    at_now.queue("plain_502")  # no Graph error object, so only the status can say what to do
+    out = send(at_now, ad_payload(i=8))
+    assert out.kind == RETRY and out.status == 502 and out.reason == "http 502"
     at_now.queue("hang")
     out = send(at_now, ad_payload(i=9), timeout=0.3)
     assert out.kind == RETRY and out.breaker_failure is True and out.reason == "ReadTimeout"

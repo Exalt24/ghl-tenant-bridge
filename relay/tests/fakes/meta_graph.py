@@ -170,11 +170,13 @@ class FakeMeta(FakeVendor):
             return self._error(400, 4, "Application request limit reached", headers=headers)
         simple = {"throttle_80004": (400, 80004, "Too many calls from this ad account"), "token_expired": (400, 190, "Error validating access token: Session has expired"),
                   "session": (400, 102, "Session key invalid"), "temporary": (500, 1, "An unknown error occurred"), "bad_param": (400, 100, "Invalid parameter"),
-                  "temp_400": (400, 2, "Service temporarily unavailable"), "limit_341": (400, 341, "Application limit reached"),
+                  "temp_400": (400, 2, "Service temporarily unavailable"), "plain_502": (502, None, ""), "limit_341": (400, 341, "Application limit reached"),
                   "server_error": (500, 2, "Service temporarily unavailable")}
         if mode in simple:
             self.record(request, parsed, mode, False)
             status, code, message = simple[mode]
+            if code is None:  # a gateway answer with no Graph error object at all
+                return Response("Bad gateway", status=status)
             return self._error(status, code, message)
         if not isinstance(parsed, dict) or not isinstance(parsed.get("data"), list) or not parsed["data"]:
             self.record(request, parsed, mode, False)
