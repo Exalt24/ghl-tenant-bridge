@@ -72,6 +72,19 @@ CAP = "relay/sinks/capi.py"
 SHT = "relay/sinks/sheets.py"
 FMETA = "tests/fakes/meta_graph.py"
 FSHEETS = "tests/fakes/sheets.py"
+MNY = "relay/money.py"
+PMETA = "relay/pulls/meta_spend.py"
+PWIN = "relay/pulls/windsor.py"
+PFAT = "relay/pulls/fathom.py"
+PCOM = "relay/pulls/common.py"
+FHOOK = "relay/fathom_hook.py"
+REC = "relay/reconcile.py"
+HTTPM = "relay/http.py"
+FADS = "tests/fakes/ads.py"
+FFATH = "tests/fakes/fathom.py"
+TCLAIMS = "tools/check_readme_claims.py"
+TSMOKE = "tools/container_smoke.py"
+TSFAKE = "tools/smoke_fake.py"
 
 T_STORE = ["tests/test_store_contract.py"]
 T_FAN = ["tests/test_fanout.py"]
@@ -87,12 +100,26 @@ T_SHEETS = ["tests/test_sheets.py"]
 T_ROUTE = ["tests/test_ghl_route.py"]
 T_STORE2 = ["tests/test_store_tier2.py"]
 T_CONTRACTS = ["tests/test_contracts.py"]
+T_MONEY = ["tests/test_money.py"]
+T_PMETA = ["tests/test_pull_meta.py"]
+T_PWIN = ["tests/test_pull_windsor.py"]
+T_PFAT = ["tests/test_pull_fathom.py"]
+T_PCOM = ["tests/test_pull_common.py"]
+T_PRUN = ["tests/test_pull_runner.py"]
+T_HOOK = ["tests/test_fathom_hook.py"]
+T_FROUTE = ["tests/test_fathom_route.py"]
+T_REC = ["tests/test_reconcile.py"]
+T_FAKES3 = ["tests/test_fakes_tier3.py"]
+T_CFG3 = ["tests/test_config_tier3.py"]
+T_TOOLS = ["tests/test_tools.py"]
+T_STORE3 = ["tests/test_store_tier3.py"]
+T_CONTRACTS3 = ["tests/test_contracts_tier3.py"]
 
 MUTANTS: list[Mutant] = [
     # ---- ingest and the store ----------------------------------------------------------------------------------------
     M("delivery rows inserted outside the ingest transaction", STORE,
-      ("            self._add_deliveries(t, event_id, tenant, sinks)\n            return IngestResult(event_id, False)",
-       "            result = IngestResult(event_id, False)\n        with self.tx() as t2:\n            self._add_deliveries(t2, event_id, tenant, sinks)\n        return result"),
+      ("            self._add_deliveries(t, event_id, tenant, sinks)\n            if on_new is not None:\n                on_new(t)\n            return IngestResult(event_id, False)",
+       "            if on_new is not None:\n                on_new(t)\n            result = IngestResult(event_id, False)\n        with self.tx() as t2:\n            self._add_deliveries(t2, event_id, tenant, sinks)\n        return result"),
       tests=T_STORE),
     M("ON CONFLICT DO NOTHING removed from the event insert", STORE,
       ('f"VALUES (?, ?, ?, ?, ?, ?, {self.now()}, ?) ON CONFLICT (event_id) DO NOTHING",', 'f"VALUES (?, ?, ?, ?, ?, ?, {self.now()}, ?)",'),
@@ -514,6 +541,235 @@ MUTANTS: list[Mutant] = [
     # ---- tier 2: the pass threads give their database connections back ---------------------------------------------------------------------
     M("a pass thread keeps its database connection", WRK, ("        finally:\n            self.store.release_connection()", "        finally:\n            pass"), tests=["tests/test_worker.py"]),
     M("release_connection keeps the connection in the registry", STORE, ("            if conn in self._conns:\n                self._conns.remove(conn)\n        try:\n            conn.close()", "            pass\n        try:\n            conn.close()"), tests=["tests/test_worker.py"]),
+    # ---- tier 3: money ---------------------------------------------------------------------------------------------------------------
+    M("money: an amount is scaled through a float", MNY, ("        scaled = value.scaleb(exp)", "        scaled = Decimal(float(value) * 10 ** exp)"), tests=T_MONEY),
+    M("money: truncates instead of rounding half up", MNY, ("rounding=ROUND_HALF_UP)", 'rounding="ROUND_DOWN")'), tests=T_MONEY),
+    M("money: the default exponent is 3", MNY, ("    if currency in FOUR_DECIMAL:\n        return 4\n    return 2", "    if currency in FOUR_DECIMAL:\n        return 4\n    return 3"), tests=T_MONEY),
+    M("money: JPY is not a zero decimal currency", MNY, ('"BIF CLP DJF GNF ISK JPY KMF KRW PYG', '"BIF CLP DJF GNF ISK KMF KRW PYG'), tests=T_MONEY),
+    M("money: KRW is not a zero decimal currency", MNY, ("ISK JPY KMF KRW PYG", "ISK JPY KMF PYG"), tests=T_MONEY),
+    M("money: the dinar family has two decimals", MNY, ("    if currency in THREE_DECIMAL:\n        return 3", "    if currency in THREE_DECIMAL:\n        return 2"), tests=T_MONEY),
+    M("money: CLF has two decimals", MNY, ("    if currency in FOUR_DECIMAL:\n        return 4", "    if currency in FOUR_DECIMAL:\n        return 2"), tests=T_MONEY),
+    M("money: an exact amount with extra decimals is rounded without notice", MNY, ("        if exact and whole != scaled:", "        if False:"), tests=T_MONEY),
+    M("money: a negative amount is always allowed", MNY, ("    if value < 0 and not allow_negative:", "    if False:"), tests=T_MONEY),
+    M("money: no bound on the size of an amount", MNY, ("    if abs(value) >= MAX_MAJOR_UNITS:", "    if False:"), tests=T_MONEY),
+    M("money: NaN and infinity are not refused", MNY, ("    if not value.is_finite():", "    if False:"), tests=T_MONEY),
+    M("money: an exponent form is accepted", MNY, ('_TEXT = re.compile(r"-?[0-9]+(\\.[0-9]+)?")', '_TEXT = re.compile(r"-?[0-9]+(\\.[0-9]+)?([eE][0-9]+)?")'), tests=T_MONEY),
+    M("money: a leading plus is accepted", MNY, ('_TEXT = re.compile(r"-?[0-9]+(\\.[0-9]+)?")', '_TEXT = re.compile(r"[+-]?[0-9]+(\\.[0-9]+)?")'), tests=T_MONEY),
+    M("money: a number type is accepted where text is required", MNY, ("    if isinstance(text, bool) or not isinstance(text, str):", "    if isinstance(text, bool):"), tests=T_MONEY),
+    M("money: a bool is accepted as a JSON number", MNY, ("    if isinstance(x, bool) or not isinstance(x, (int, float)):", "    if not isinstance(x, (int, float)):"), tests=T_MONEY),
+    M("money: a JSON number goes through its binary value", MNY, ("        value = Decimal(str(x))", "        value = Decimal(x)"), tests=T_MONEY),
+    M("money: an unknown currency code is accepted", MNY, ("    if not isinstance(code, str) or code not in KNOWN_CURRENCIES:", "    if not isinstance(code, str):"), tests=T_MONEY),
+    M("money: surrounding spaces are not stripped", MNY, ("    cleaned = text.strip()", "    cleaned = text"), tests=T_MONEY),
+    # ---- tier 3: the pull helpers --------------------------------------------------------------------------------------------------------
+    M("pull: a wait over the cap is slept instead of ending the run", PCOM, ("        if seconds > MAX_WAIT_S or self.result.waited_s + seconds > MAX_TOTAL_WAIT_S:", "        if False:"), tests=T_PCOM),
+    M("pull: the run total of waits is not capped", PCOM, ("        if seconds > MAX_WAIT_S or self.result.waited_s + seconds > MAX_TOTAL_WAIT_S:", "        if seconds > MAX_WAIT_S:"), tests=T_PCOM),
+    M("pull: waits are not added to the run total", PCOM, ("        self.result.waited_s += seconds", "        pass"), tests=T_PCOM),
+    M("pull: the backoff has no jitter", PCOM, ("    return top / 2 + rng.random() * top / 2", "    return top"), tests=T_PCOM),
+    M("pull: the backoff has no cap", PCOM, ("    top = min(base * (2 ** max(attempt, 0)), cap)", "    top = base * (2 ** max(attempt, 0))"), tests=T_PCOM),
+    M("pull: the limiter lets one call too many in", PCOM, ("        if len(self.calls) < self.limit:", "        if len(self.calls) <= self.limit:"), tests=T_PCOM),
+    M("pull: the limiter never forgets an old call", PCOM, ("        while self.calls and now - self.calls[0] >= self.window_s:", "        while False:"), tests=T_PCOM),
+    M("pull: the limiter does not record a call", PCOM, ("            if need <= 0:\n                self.record()\n                return waited", "            if need <= 0:\n                return waited"), tests=T_PCOM),
+    # ---- tier 3: Meta Insights --------------------------------------------------------------------------------------------------------------
+    M("Insights: spend is parsed as a float", PMETA, ("        minor = to_minor_from_text(spend, currency)", "        minor = int(float(spend) * 100)"), tests=T_PMETA),
+    M("Insights: a negative spend is accepted", PMETA, ("        minor = to_minor_from_text(spend, currency)", "        minor = to_minor_from_text(spend, currency, allow_negative=True)"), tests=T_PMETA),
+    M("Insights: paging stops after the first page", PMETA, ("            if nxt is None:\n                url = None\n                continue", "            if True:\n                url = None\n                continue"), tests=T_PMETA),
+    M("Insights: paging stops at an empty page", PMETA, ("            self.result.pages += 1\n            out.extend(parse_row(r, self.account) for r in data)", "            self.result.pages += 1\n            if not data:\n                break\n            out.extend(parse_row(r, self.account) for r in data)"), tests=T_PMETA),
+    M("Insights: a next link to another host is followed", PMETA, ("            if not isinstance(nxt, str) or (urlsplit(nxt).scheme, urlsplit(nxt).netloc) != self.origin:", "            if not isinstance(nxt, str):"), tests=T_PMETA),
+    M("Insights: a repeated cursor is not noticed", PMETA, ("            if url in seen:", "            if False:"), tests=T_PMETA),
+    M("Insights: a page chain that never ends is not cut off", PMETA, ("            if len(seen) >= MAX_PAGES:", "            if False:"), tests=T_PMETA),
+    M("Insights: the currency is dropped", PMETA, ('"currency": currency, "impressions": _count(raw.get("impressions"))', '"currency": "USD", "impressions": _count(raw.get("impressions"))'), tests=T_PMETA),
+    M("Insights: an unknown or missing currency is accepted", PMETA, ('        currency = check_currency(raw.get("account_currency"))', '        currency = raw.get("account_currency") or "USD"'), tests=T_PMETA),
+    M("Insights: the window is a day short", PMETA, ("    puller.collect(day - timedelta(days=cfg.days - 1), day)", "    puller.collect(day - timedelta(days=cfg.days - 2), day)"), tests=T_PMETA),
+    M("Insights: error 190 is not a stop", PMETA, ('            if code == 190:\n                raise PullAbort("access token refused (190)")', '            if False:\n                raise PullAbort("access token refused (190)")'), tests=T_PMETA),
+    M("Insights: the usage header is ignored", PMETA, ("                wait = regain_wait_s(res.headers)", "                wait = None"), tests=T_PMETA),
+    M("Insights: a throttle without the header does not back off", PMETA, ("else backoff_s(attempt, self.env.rng), f\"throttled", "else 0.0, f\"throttled"), tests=T_PMETA),
+    M("Insights: throttle codes are not recognised", PMETA, ("            if code is not None and is_throttle_code(code):", "            if False:"), tests=T_PMETA),
+    M("Insights: error 100 subcode 1487534 does not split the range", PMETA, ("        except TooMuchData:\n            if since == until:", "        except ZeroDivisionError:\n            if since == until:"), tests=T_PMETA),
+    M("Insights: the two halves of a split overlap", PMETA, ("            self.collect(middle + timedelta(days=1), until)", "            self.collect(middle, until)"), tests=T_PMETA),
+    M("Insights: the two halves of a split leave a gap", PMETA, ("            self.collect(since, middle)", "            self.collect(since, middle - timedelta(days=1))"), tests=T_PMETA),
+    M("Insights: a single day that is still too much is not refused", PMETA, ('            if since == until:\n                raise PullError("one day is still too much data for one call") from None', '            if False:\n                raise PullError("one day is still too much data for one call") from None'), tests=T_PMETA),
+    M("Insights: a numeric spend is accepted", PMETA, ('    if not isinstance(spend, str):\n        raise PullError("spend is not a numeric string")', '    if False:\n        raise PullError("spend is not a numeric string")'), tests=T_PMETA),
+    M("Insights: a row that spans several days is accepted", PMETA, ("    if start != stop:", "    if False:"), tests=T_PMETA),
+    M("Insights: a transport failure is not retried", PMETA, ('                last = exc.kind\n                self.waiter.wait(backoff_s(attempt, self.env.rng), f"transport failure: {exc.kind}")\n                continue', '                raise PullError("transport failure")'), tests=T_PMETA),
+    M("Insights: a bare 5xx is not retried", PMETA, ("            if res.status >= 500 or (code is not None and is_retry_code(code)):", "            if code is not None and is_retry_code(code):"), tests=T_PMETA),
+    M("Insights: retries have no ceiling", PMETA, ("        for attempt in range(MAX_TRIES):", "        for attempt in range(100):"), tests=T_PMETA),
+    M("Insights: the access token is not sent", PMETA, ('            "access_token": self.cfg.key,\n', ""), tests=T_PMETA),
+    M("Insights: the level is not campaign", PMETA, ('            "level": "campaign", "time_increment": "1",', '            "level": "ad", "time_increment": "1",'), tests=T_PMETA),
+    M("Insights: the time increment is not one day", PMETA, ('"time_increment": "1", "fields": FIELDS', '"time_increment": "7", "fields": FIELDS'), tests=T_PMETA),
+    M("Insights: the page size is not sent", PMETA, ('"limit": str(self.cfg.extra["limit"]),', '"limit": "99999",'), tests=T_PMETA),
+    M("Insights: a numeric account id gets no act_ prefix", PMETA, ('    return account if account.startswith("act_") else f"act_{account}"', "    return account"), tests=T_PMETA),
+    M("Insights: a vendor error body is copied into the message", PMETA, ('            raise PullError(f"the vendor refused the request: {last}")', '            raise PullError(f"the vendor refused the request: {last} {res.text}")'), tests=T_PMETA),
+    # ---- tier 3: Windsor.ai ---------------------------------------------------------------------------------------------------------------------
+    M("Windsor: a spend that is text is accepted", PWIN, ("    if isinstance(spend, bool) or not isinstance(spend, (int, float)):", "    if isinstance(spend, bool):"), tests=T_PWIN),
+    M("Windsor: the api key is not sent", PWIN, ('"date_to": day.isoformat(), "api_key": cfg.key,', '"date_to": day.isoformat(),'), tests=T_PWIN),
+    M("Windsor: Retry-After is ignored", PWIN, ('waiter.wait(_retry_after_s(res.headers) or backoff_s(attempt, env.rng), "rate limited (429)")', 'waiter.wait(backoff_s(attempt, env.rng), "rate limited (429)")'), tests=T_PWIN),
+    M("Windsor: a 429 is not retried", PWIN, ("        if res.status == 429:", "        if False:"), tests=T_PWIN),
+    M("Windsor: a 401 is not a stop", PWIN, ("        if res.status in (401, 403):", "        if res.status in (403,):"), tests=T_PWIN),
+    M("Windsor: a 5xx is not retried", PWIN, ("        if res.status >= 500:", "        if False:"), tests=T_PWIN),
+    M("Windsor: two rows for one campaign and day are merged without notice", PWIN, ("        if key in rows:", "        if False:"), tests=T_PWIN),
+    M("Windsor: the window is a day long too many", PWIN, ('"date_from": (day - timedelta(days=cfg.days - 1)).isoformat()', '"date_from": (day - timedelta(days=cfg.days)).isoformat()'), tests=T_PWIN),
+    M("Windsor: rows are stored under the Meta source", PWIN, ('SOURCE = "windsor"', 'SOURCE = "meta"'), tests=T_PWIN),
+    M("Windsor: a vendor error body is copied into the message", PWIN, ('        raise PullError(f"the vendor refused the request: {last}")', '        raise PullError(f"the vendor refused the request: {last} {res.text}")'), tests=T_PWIN),
+    M("Windsor: a transport failure is not retried", PWIN, ('            last = exc.kind\n            waiter.wait(backoff_s(attempt, env.rng), f"transport failure: {exc.kind}")\n            continue', '            raise PullError("transport failure")'), tests=T_PWIN),
+    # ---- tier 3: the Fathom puller ---------------------------------------------------------------------------------------------------------------
+    M("Fathom puller: the global window allows 100 calls", PFAT, ("CALLS_PER_WINDOW = 60", "CALLS_PER_WINDOW = 100"), tests=T_PFAT + T_CONTRACTS3),
+    M("Fathom puller: the heavy window allows 60 calls", PFAT, ("HEAVY_CALLS_PER_WINDOW = 30", "HEAVY_CALLS_PER_WINDOW = 60"), tests=T_PFAT + T_CONTRACTS3),
+    M("Fathom puller: the window is 30 seconds", PFAT, ("WINDOW_S = 60.0", "WINDOW_S = 30.0"), tests=T_PFAT + T_CONTRACTS3),
+    M("Fathom puller: a heavy call does not use the heavy window", PFAT, ("                if heavy:\n                    self.heavy_window.record()", "                if False:\n                    self.heavy_window.record()"), tests=T_PFAT),
+    M("Fathom puller: a heavy call does not wait for the heavy window", PFAT, ("            need = max(self.global_window.ready_in(), self.heavy_window.ready_in() if heavy else 0.0)", "            need = self.global_window.ready_in()"), tests=T_PFAT),
+    M("Fathom puller: include_summary is not treated as a heavy call", PFAT, ("        body = _get_page(env, cfg, url, include_summary, limiter, waiter, result)", "        body = _get_page(env, cfg, url, False, limiter, waiter, result)"), tests=T_PFAT),
+    M("Fathom puller: include_summary is not sent", PFAT, ('        if include_summary:\n            params["include_summary"] = "true"', '        if False:\n            params["include_summary"] = "true"'), tests=T_PFAT),
+    M("Fathom puller: Retry-After is ignored", PFAT, ('            waiter.wait(_retry_after_s(res.headers), "rate limited (429)")', '            waiter.wait(DEFAULT_RETRY_AFTER_S, "rate limited (429)")'), tests=T_PFAT),
+    M("Fathom puller: a 429 without Retry-After waits one second", PFAT, ("DEFAULT_RETRY_AFTER_S = 60.0", "DEFAULT_RETRY_AFTER_S = 1.0"), tests=T_PFAT),
+    M("Fathom puller: a 401 is not a stop", PFAT, ("        if res.status == 401:", "        if False:"), tests=T_PFAT),
+    M("Fathom puller: a repeated cursor is not noticed", PFAT, ("        if nxt in seen:", "        if False:"), tests=T_PFAT),
+    M("Fathom puller: paging stops after the first page", PFAT, ("        if nxt is None:\n            break", "        if True:\n            break"), tests=T_PFAT),
+    M("Fathom puller: action items are not asked for", PFAT, ('        params = {"include_action_items": "true", "created_after": since}', '        params = {"created_after": since}'), tests=T_PFAT),
+    M("Fathom puller: the api key header is not sent", PFAT, ('headers={"X-Api-Key": cfg.key, "Accept": "application/json"}', 'headers={"Accept": "application/json"}'), tests=T_PFAT),
+    M("Fathom puller: the window looks forward instead of back", PFAT, ('    since = f"{(day - timedelta(days=cfg.days)).isoformat()}T00:00:00Z"', '    since = f"{(day + timedelta(days=cfg.days)).isoformat()}T00:00:00Z"'), tests=T_PFAT),
+    M("Fathom puller: a meeting with no id is dropped without being counted", PFAT, ("                result.skipped += 1\n                continue", "                continue"), tests=T_PFAT),
+    M("Fathom puller: a 5xx is not retried", PFAT, ("        if res.status >= 500:", "        if False:"), tests=T_PFAT),
+    M("Fathom puller: retries have no ceiling", PFAT, ("    for attempt in range(MAX_TRIES):", "    for attempt in range(100):"), tests=T_PFAT),
+    M("Fathom puller: a vendor error body is copied into the message", PFAT, ('        raise PullError(f"the vendor refused the request: {last}")', '        raise PullError(f"the vendor refused the request: {last} {res.text}")'), tests=T_PFAT),
+    # ---- tier 3: the Fathom webhook ---------------------------------------------------------------------------------------------------------------
+    M("Fathom hook: the whsec_ prefix is not removed", FHOOK, ("        key = base64.b64decode(secret[len(SECRET_PREFIX):], validate=True)", "        key = base64.b64decode(secret, validate=True)"), tests=T_HOOK),
+    M("Fathom hook: the secret is not base64 decoded", FHOOK, ("        key = base64.b64decode(secret[len(SECRET_PREFIX):], validate=True)", "        key = secret[len(SECRET_PREFIX):].encode()"), tests=T_HOOK),
+    M("Fathom hook: a short key is accepted", FHOOK, ("    if len(key) < MIN_KEY_BYTES:", "    if False:"), tests=T_HOOK),
+    M("Fathom hook: only the first signature is checked", FHOOK, ('    for entry in signature.split(" "):', '    for entry in signature.split(" ")[:1]:'), tests=T_HOOK),
+    M("Fathom hook: a signature of another version is accepted", FHOOK, ('        if version != "v1" or not _comma:', "        if not _comma:"), tests=T_HOOK),
+    M("Fathom hook: the signature is compared with ==", FHOOK, ('        matched |= hmac.compare_digest(expected, value.encode("utf-8"))', '        matched |= expected == value.encode("utf-8")'), tests=T_HOOK),
+    M("Fathom hook: the check returns at the first matching signature", FHOOK, ('        matched |= hmac.compare_digest(expected, value.encode("utf-8"))', '        if hmac.compare_digest(expected, value.encode("utf-8")):\n            return None'), tests=T_HOOK),
+    M("Fathom hook: the timestamp tolerance is removed", FHOOK, ("    if abs(now - int(timestamp)) > tolerance_s:", "    if False:"), tests=T_HOOK),
+    M("Fathom hook: a timestamp from the future is accepted", FHOOK, ("    if abs(now - int(timestamp)) > tolerance_s:", "    if now - int(timestamp) > tolerance_s:"), tests=T_HOOK),
+    M("Fathom hook: the timestamp is not checked to be plain digits", FHOOK, ("    if not (timestamp.isascii() and timestamp.isdigit()):", "    if False:"), tests=T_HOOK),
+    M("Fathom hook: the body is decoded and encoded again before it is signed over", FHOOK, ('    signed = message_id.encode("utf-8") + b"." + timestamp.encode("utf-8") + b"." + raw', '    signed = message_id.encode("utf-8") + b"." + timestamp.encode("utf-8") + b"." + raw.decode("utf-8", "replace").encode("utf-8")'), tests=T_HOOK),
+    M("Fathom hook: the timestamp is left out of what is signed", FHOOK, ('    signed = message_id.encode("utf-8") + b"." + timestamp.encode("utf-8") + b"." + raw', '    signed = message_id.encode("utf-8") + b"." + raw'), tests=T_HOOK),
+    M("Fathom hook: an overlong webhook id is accepted", FHOOK, ("    if not message_id or not timestamp or not signature or len(message_id) > MAX_ID_CHARS:", "    if not message_id or not timestamp or not signature:"), tests=T_HOOK),
+    M("Fathom hook: header names are case sensitive", FHOOK, ("    h = {k.lower(): v for k, v in headers.items()}", "    h = dict(headers)"), tests=T_HOOK + T_FROUTE),
+    M("Fathom hook: a boolean recording id is accepted", FHOOK, ("    if isinstance(rid, bool) or not isinstance(rid, (int, str)) or str(rid).strip() == \"\":", "    if not isinstance(rid, (int, str)) or str(rid).strip() == \"\":"), tests=T_HOOK),
+    M("Fathom hook: an http recording url is kept", FHOOK, ('url if isinstance(url, str) and url.startswith("https://") and len(url) <= 500 else None', 'url if isinstance(url, str) and url.startswith("http") and len(url) <= 500 else None'), tests=T_HOOK),
+    M("Fathom hook: action items are not capped", FHOOK, ("        if len(out) >= MAX_ACTION_ITEMS:", "        if False:"), tests=T_HOOK),
+    M("Fathom hook: the assignee email is kept instead of the name", FHOOK, ('_text(assignee.get("name"), 100) if isinstance(assignee, dict) else None', '_text(assignee.get("email"), 100) if isinstance(assignee, dict) else None'), tests=T_HOOK),
+    M("Fathom hook: a summary is not cut to 20000 characters", FHOOK, ('_text(summary.get("markdown_formatted"), MAX_SUMMARY_CHARS)', 'summary.get("markdown_formatted")'), tests=T_HOOK),
+    # ---- tier 3: the Fathom route ---------------------------------------------------------------------------------------------------------------------
+    M("Fathom route: an unknown tenant is a 404 that names it", APP, ('            return _err(401, "unauthorised")  # an unknown tenant answers like a bad signature, so the route names no tenant', '            return _err(404, "not-found")'), tests=T_FROUTE),
+    M("Fathom route: the signature problem is not acted on", APP, ("        if problem is not None:\n            return _err(401, problem)", "        if False:\n            return _err(401, problem)"), tests=T_FROUTE),
+    M("Fathom route: the body cap is the 256 KB default", APP, ("        raw = read_body(fcfg.max_body_bytes)", "        raw = read_body(cfg.max_body_bytes)"), tests=T_FROUTE),
+    M("Fathom route: the event is keyed on the recording and not the webhook id", APP, ("                key=message_id, tenant=tenant, source=\"fathom\"", "                key=meeting[\"recording_id\"], tenant=tenant, source=\"fathom\""), tests=T_FROUTE),
+    M("Fathom route: every enabled sink gets the meeting", APP, ('        sinks = ["slack"] if fcfg.slack else []', "        sinks = cfg.tenants[tenant].enabled_sinks()"), tests=T_FROUTE),
+    M("Fathom route: the meeting is stored outside the event's transaction", APP, ("payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=keep_meeting,", "payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=None,"), ('        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})\n\n    def admin_gate()', '        with store.tx() as t:\n            keep_meeting(t)\n        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})\n\n    def admin_gate()'), tests=T_FROUTE),
+    M("Fathom route: a failure before the commit is acknowledged", APP, ('            log.error("fathom ingest failed before commit: %s", type(exc).__name__)\n            return _err(503, "store")', '            log.error("fathom ingest failed before commit: %s", type(exc).__name__)\n            return jsonify({"ok": True})'), tests=T_FROUTE),
+    M("Fathom route: the signature is checked over a reserialised body", APP, ("request.headers, raw, deps.clock(), fcfg.tolerance_s)", "request.headers, json.dumps(json.loads(raw)).encode(), deps.clock(), fcfg.tolerance_s)"), tests=T_FROUTE),
+    M("Fathom route: the tolerance is not the tenant's", APP, ("request.headers, raw, deps.clock(), fcfg.tolerance_s)", "request.headers, raw, deps.clock(), 300.0)"), tests=T_FROUTE),
+    M("Fathom route: the clock is the process clock", APP, ("request.headers, raw, deps.clock(), fcfg.tolerance_s)", "request.headers, raw, __import__('time').time(), fcfg.tolerance_s)"), tests=T_FROUTE),
+    M("Fathom route: the whole delivery is stored, transcript included", APP, ("payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks", "payload=raw.decode(\"utf-8\"), sinks=sinks"), tests=T_FROUTE),
+    M("Fathom route: a body that is not an object with a recording id is accepted", APP, ('        if meeting is None:\n            return _err(400, "recording_id-required")', '        if False:\n            return _err(400, "recording_id-required")'), tests=T_FROUTE),
+    # ---- tier 3: config for the receiver and the pulls -------------------------------------------------------------------------------------------------
+    M("config: a Fathom secret is not checked for its shape", CFG, ("    try:\n        parse_secret(secret)\n    except ValueError:", "    try:\n        pass\n    except ValueError:"), tests=T_CFG3),
+    M("config: Slack fan-out is allowed without a Slack sink", CFG, ('    if slack and not (sinks.get("slack") and sinks["slack"].enabled):', "    if False:"), tests=T_CFG3),
+    M("config: a pull base URL skips the RELAY_LIVE guard", CFG, ('        check_base_url(base_url, live, f"{where} base url")', "        pass"), tests=T_CFG3),
+    M("config: the pull window has no upper bound", CFG, ("        if days > MAX_PULL_DAYS:", "        if False:"), tests=T_CFG3),
+    M("config: a literal key in a pull is not refused", CFG, ("        _check_keys(p, PULL_KEYS[pname], where)", "        pass"), tests=T_CFG3),
+    M("config: the Windsor label is not checked", CFG, ('        if pname == "windsor" and not LABEL_RE.fullmatch(account):', "        if False:"), tests=T_CFG3),
+    M("config: the Fathom secret is not masked in logs", CFG, ("            if t.fathom is not None:\n                vals.append(t.fathom.secret)\n", ""), tests=T_CFG3),
+    M("config: a pull key is not masked in logs", CFG, ("            for p in t.pulls.values():\n                vals.append(p.key)\n", ""), tests=T_CFG3),
+    M("config: the Fathom body cap default is 256 KB", CFG, ("FATHOM_MAX_BODY_BYTES = 2 * 1024 * 1024", "FATHOM_MAX_BODY_BYTES = 256 * 1024"), tests=T_CFG3 + T_FROUTE),
+    M("config: the Fathom tolerance default is 50 minutes", CFG, ("FATHOM_TOLERANCE_S = 300.0", "FATHOM_TOLERANCE_S = 3000.0"), tests=T_CFG3),
+    # ---- tier 3: the pull command line ---------------------------------------------------------------------------------------------------------
+    M("pull command: error 4 for a refused key becomes a plain failure", "relay/pulls/runner.py", ("        return EXIT_ABORTED", "        return EXIT_ERROR"), tests=T_PRUN),
+    M("pull command: a refused key raises no alert", "relay/pulls/runner.py", ('        _alert(store, cfg, env, name, tenant, "pause", f"credentials refused: {exc}")', "        pass"), tests=T_PRUN),
+    M("pull command: a throttle exits 0", "relay/pulls/runner.py", ("        return EXIT_THROTTLED", "        return EXIT_OK"), tests=T_PRUN),
+    M("pull command: bad data raises no alert", "relay/pulls/runner.py", ('        _alert(store, cfg, env, name, tenant, "dead", f"pull failed: {exc}")', "        pass"), tests=T_PRUN),
+    M("pull command: --days is not applied", "relay/pulls/__main__.py", ("        cfg.tenants[tenant].pulls[args.pull] = replace(cfg.tenants[tenant].pulls[args.pull], days=args.days)", "        pass"), tests=T_PRUN),
+    M("pull command: --days has no bounds", "relay/pulls/__main__.py", ("        if not 1 <= args.days <= 365:", "        if False:"), tests=T_PRUN),
+    M("pull command: a tenant is guessed when several have the pull", "relay/pulls/__main__.py", ("    tenant = args.tenant or (owners[0] if len(owners) == 1 else None)", "    tenant = args.tenant or (owners[0] if owners else None)"), tests=T_PRUN),
+    M("pull command: a tenant that does not have the pull is run anyway", "relay/pulls/__main__.py", ("    if tenant is None or tenant not in owners:", "    if tenant is None:"), tests=T_PRUN),
+    M("pull command: a config error exits 0", "relay/pulls/__main__.py", ("        print(f\"relay.pulls: configuration refused: {exc}\", file=sys.stderr)\n        return EXIT_CONFIG", "        print(f\"relay.pulls: configuration refused: {exc}\", file=sys.stderr)\n        return 0"), tests=T_PRUN),
+    # ---- tier 3: the store, the HTTP seam and the worker purge ---------------------------------------------------------------------------------------
+    M("store: a repeated spend row does not replace the old figure", STORE, ("DO UPDATE SET spend_minor = excluded.spend_minor", "DO UPDATE SET spend_minor = spend_daily.spend_minor"), tests=T_STORE3),
+    M("store: a restated day keeps its old pull time", STORE, ("pulled_at = excluded.pulled_at", "pulled_at = spend_daily.pulled_at"), tests=T_STORE3),
+    M("store: spend rows are written one transaction each", STORE, ("        with self.tx() as t:\n            for r in rows:\n                t.execute(", "        for r in rows:\n          with self.tx() as t:\n                t.execute("), tests=T_STORE3),
+    M("store: the on_new hook runs for a duplicate too", STORE, ("            if cur.rowcount != 1:\n                self._suppress(t, event_id, basis, tenant)\n                return IngestResult(event_id, True)", "            if cur.rowcount != 1:\n                self._suppress(t, event_id, basis, tenant)\n                if on_new is not None:\n                    on_new(t)\n                return IngestResult(event_id, True)"), tests=T_STORE3),
+    M("store: a meeting refresh may overwrite another tenant's meeting", STORE, ('            f"WHERE fathom_meetings.tenant = excluded.tenant",', '            f"",'), tests=T_STORE3),
+    M("store: a meeting refresh drops a summary the new copy lacks", STORE, ('            f"summary = COALESCE(excluded.summary, fathom_meetings.summary), "', '            f"summary = excluded.summary, "'), tests=T_STORE3),
+    M("store: a meeting refresh drops action items the new copy lacks", STORE, ('            f"action_items = COALESCE(excluded.action_items, fathom_meetings.action_items) "', '            f"action_items = excluded.action_items "'), tests=T_STORE3),
+    M("http: a pull gets only the short cut of a reply", HTTPM, ("text=res.text[:max_text],", "text=res.text[:MAX_BODY_TEXT],"), tests=["tests/test_http.py"]),
+    M("worker: --purge purges events that are not old", WRK, ("PURGE_AFTER_DAYS = 30.0", "PURGE_AFTER_DAYS = 0.0"), tests=["tests/test_worker.py"]),
+    M("worker: --purge does not purge", WRK, ("    if args.purge:\n        worker.purge()\n        return 0", "    if args.purge:\n        return 0"), tests=["tests/test_worker.py"]),
+    # ---- tier 3: the Slack message for a meeting ---------------------------------------------------------------------------------------------------------
+    M("Slack: a Fathom meeting is posted as a lead", SLK, ('        message = build_meeting_message(event) if event.source == "fathom" else build_message(event)', "        message = build_message(event)"), tests=T_FROUTE),
+    M("Slack: a meeting summary is not escaped", SLK, ("        lines.append(truncate_escaped(summary))", "        lines.append(summary)"), tests=T_FROUTE),
+    M("Slack: a meeting header is not cut to 150 characters", SLK, ("    return text if len(text) <= MAX_HEADER_CHARS else text[: MAX_HEADER_CHARS - 1] + \"…\"", "    return text"), tests=T_FROUTE),
+    M("Slack: a meeting footer shows more than 8 characters of the event id", SLK, ('"event `" + event.event_id[:8] + "` for "', '"event `" + event.event_id[:12] + "` for "'), tests=T_FROUTE),
+    M("Slack: every action item is posted", SLK, ("            for i in items[:10]\n        ]", "            for i in items\n        ]"), tests=T_FROUTE),
+    M("Slack: the count of action items not shown is dropped", SLK, ('        more = f"\\n_and {len(items) - 10} more_" if len(items) > 10 else ""', '        more = ""'), tests=T_FROUTE),
+    M("Slack: an action item assignee is not escaped", SLK, ("(f\" ({truncate_escaped(i['assignee'], 60)})\"", "(f\" ({i['assignee']})\""), tests=T_FROUTE),
+    # ---- tier 3: reconciliation ---------------------------------------------------------------------------------------------------------------------------
+    M("reconcile: a repeated row is not reported", REC, ("repeats=sum(c - 1 for c in copies.values())", "repeats=0"), tests=T_REC),
+    M("reconcile: a repeated row is counted twice in the total", REC, ("parts=sorted(copies, key=", "parts=sorted((r for r, c in copies.items() for _ in range(c)), key="), tests=T_REC),
+    M("reconcile: the tolerance is exclusive", REC, ("        if abs(difference) > tolerance_minor:", "        if abs(difference) >= tolerance_minor:"), tests=T_REC),
+    M("reconcile: a different currency is ignored", REC, ("        if len(p.currencies) != 1 or p.currencies != l.currencies:", "        if False:"), tests=T_REC),
+    M("reconcile: split payments are not summed", REC, ("        return sum(r.amount_minor for r in self.parts)", "        return self.parts[0].amount_minor"), tests=T_REC),
+    M("reconcile: the expected bucket is ignored", REC, ("        if expected_bucket is not None and any(r.bucket != expected_bucket for r in l.parts):", "        if False:"), tests=T_REC),
+    M("reconcile: one ledger part in the right bucket is enough", REC, ("any(r.bucket != expected_bucket for r in l.parts)", "all(r.bucket != expected_bucket for r in l.parts)"), tests=T_REC),
+    M("reconcile: a float amount is accepted", REC, ("    if isinstance(amount, bool) or not isinstance(amount, int):", "    if isinstance(amount, bool) or not isinstance(amount, (int, float)):"), tests=T_REC),
+    M("reconcile: a boolean amount is accepted", REC, ("    if isinstance(amount, bool) or not isinstance(amount, int):", "    if not isinstance(amount, int):"), tests=T_REC),
+    M("reconcile: the result depends on the order of the rows", REC, ("    for rid in sorted(set(pay) | set(led)):", "    for rid in list(pay) + [k for k in led if k not in pay]:"), tests=T_REC),
+    M("reconcile: an id on the payments side only is missing from the payments", REC, ('            out.missing_in_ledger.append({"id": rid, "amount_minor": p.total', '            out.missing_in_payments.append({"id": rid, "amount_minor": p.total'), tests=T_REC),
+    M("reconcile: the tolerance may be a float or negative", REC, ("    if isinstance(tolerance_minor, bool) or not isinstance(tolerance_minor, int) or tolerance_minor < 0:", "    if tolerance_minor < 0:"), tests=T_REC),
+    M("reconcile: an id is not trimmed", REC, ("    return Row(rid.strip(), amount, currency, day, bucket if bucket else None)", "    return Row(rid, amount, currency, day, bucket if bucket else None)"), tests=T_REC),
+    M("reconcile: a date that is not an ISO date is accepted", REC, ("        date.fromisoformat(day)\n    except ValueError:", "        pass\n    except ValueError:"), tests=T_REC),
+    M("reconcile: an amount may be a fraction of a minor unit in a CSV", REC, ('minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=True)', 'minor = to_minor_from_text(cell("amount"), code, exact=False, allow_negative=True)'), tests=T_REC),
+    M("reconcile: a refund with a minus sign is refused in a CSV", REC, ('minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=True)', 'minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=False)'), tests=T_REC),
+    M("reconcile: an unknown currency in a CSV is not named as such", REC, ("            try:\n                check_currency(code)\n            except MoneyError:", "            try:\n                pass\n            except MoneyError:"), tests=T_REC),
+    M("reconcile: a lower case currency in a CSV is refused", REC, ('code = fixed if fixed is not None else cell("currency").upper()', 'code = fixed if fixed is not None else cell("currency")'), tests=T_REC),
+    M("reconcile: a byte order mark breaks the first header", REC, ('with open(path, encoding="utf-8-sig", newline="") as fh:', 'with open(path, encoding="utf-8", newline="") as fh:'), tests=T_REC),
+    M("reconcile: the column map is ignored", REC, ("            index[canon] = header.index(name)", "            index[canon] = header.index(canon)"), tests=T_REC),
+    M("reconcile: a ragged CSV row is read anyway", REC, ("            if len(cells) != len(header):", "            if False:"), tests=T_REC),
+    M("reconcile: the date format is ignored", REC, ('day = datetime.strptime(cell("date"), date_format).date().isoformat()', 'day = datetime.strptime(cell("date"), "%Y-%m-%d").date().isoformat()'), tests=T_REC),
+    M("reconcile: a row of only spaces is read as a payment", REC, ("            if not cells or all(not c.strip() for c in cells):", "            if not cells:"), tests=T_REC),
+    M("reconcile: a repeated header name is accepted", REC, ("        if len(set(header)) != len(header):", "        if False:"), tests=T_REC),
+    M("reconcile: a CSV may carry both a currency column and a fixed currency", REC, ('    if "currency" in column_map and currency is not None:', "    if False:"), tests=T_REC),
+    # ---- tier 3: the new fakes (a fake that accepts everything is a rubber stamp) -------------------------------------------------------------------------
+    M("fake Insights: the access token is not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"level", "time_increment", "time_range", "fields", "limit"}'), tests=T_FAKES3),
+    M("fake Insights: the level is not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"token", "time_increment", "time_range", "fields", "limit"}'), tests=T_FAKES3),
+    M("fake Insights: the time increment is not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"token", "level", "time_range", "fields", "limit"}'), tests=T_FAKES3),
+    M("fake Insights: the time range is not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"token", "level", "time_increment", "fields", "limit"}'), tests=T_FAKES3),
+    M("fake Insights: the fields are not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"token", "level", "time_increment", "time_range", "limit"}'), tests=T_FAKES3),
+    M("fake Insights: the page size is not checked", FADS, ('self.rules = {"token", "level", "time_increment", "time_range", "fields", "limit"}', 'self.rules = {"token", "level", "time_increment", "time_range", "fields"}'), tests=T_FAKES3),
+    M("fake Insights: error 100 subcode 1487534 is never answered", FADS, ("        if self.max_days is not None and since is not None and until is not None and (until - since).days + 1 > self.max_days:", "        if False:"), tests=T_FAKES3),
+    M("fake Insights: the last page still carries next", FADS, ('        if next_offset < len(matching) or mode == "empty_page":', "        if True:"), tests=T_FAKES3),
+    M("fake Insights: spend is not served as text", FADS, ('        if self.spend_type == "number":\n            for r in body_rows:\n                r["spend"] = float(r["spend"])', '        if True:\n            for r in body_rows:\n                r["spend"] = float(r["spend"])'), tests=T_FAKES3),
+    M("fake Windsor: the api key is not checked", FADS, ('self.rules = {"api_key", "fields", "dates"}', 'self.rules = {"fields", "dates"}'), tests=T_FAKES3),
+    M("fake Windsor: the fields are not checked", FADS, ('self.rules = {"api_key", "fields", "dates"}', 'self.rules = {"api_key", "dates"}'), tests=T_FAKES3),
+    M("fake Windsor: the dates are not checked", FADS, ('self.rules = {"api_key", "fields", "dates"}', 'self.rules = {"api_key", "fields"}'), tests=T_FAKES3),
+    M("fake Windsor: header authentication is accepted", FADS, ('        if "api_key" in self.rules and args.get("api_key") != self.key:', '        if "api_key" in self.rules and args.get("api_key") != self.key and request.headers.get("X-Api-Key") != self.key:'), tests=T_FAKES3),
+    M("fake Fathom: the api key header is not checked", FFATH, ('self.rules = {"apikey", "window"}', 'self.rules = {"window"}'), tests=T_FAKES3),
+    M("fake Fathom: the call window is not enforced", FFATH, ('self.rules = {"apikey", "window"}', 'self.rules = {"apikey"}'), tests=T_FAKES3),
+    M("fake Fathom: the heavy window is 60 calls", FFATH, ("HEAVY_LIMIT = 30", "HEAVY_LIMIT = 60"), tests=T_FAKES3),
+    M("fake Fathom: the window is 100 calls", FFATH, ("LIMIT = 60\n", "LIMIT = 100\n"), tests=T_FAKES3),
+    M("fake Fathom: action items are served when not asked for", FFATH, ('            if args.get("include_action_items") != "true":\n                item["action_items"] = None', '            if False:\n                item["action_items"] = None'), tests=T_FAKES3),
+    M("fake Fathom: a summary is served when not asked for", FFATH, ('            if args.get("include_summary") != "true":\n                item["default_summary"] = None', '            if False:\n                item["default_summary"] = None'), tests=T_FAKES3),
+    M("fake Fathom: the signer leaves out the timestamp", FFATH, ('mac = hmac.new(key, f"{message_id}.{timestamp}.".encode() + body, hashlib.sha256).digest()', 'mac = hmac.new(key, f"{message_id}.".encode() + body, hashlib.sha256).digest()'), tests=T_FAKES3),
+    # ---- tier 3: the two scripts in tools/ --------------------------------------------------------------------------------------------------------------------
+    M("claims checker: the word live is not looked for", TCLAIMS, ('FORBIDDEN = re.compile(r"\\b(verified|live|production)\\b", re.IGNORECASE)', 'FORBIDDEN = re.compile(r"\\b(verified|production)\\b", re.IGNORECASE)'), tests=T_TOOLS),
+    M("claims checker: the word verified is not looked for", TCLAIMS, ('FORBIDDEN = re.compile(r"\\b(verified|live|production)\\b", re.IGNORECASE)', 'FORBIDDEN = re.compile(r"\\b(live|production)\\b", re.IGNORECASE)'), tests=T_TOOLS),
+    M("claims checker: the word production is not looked for", TCLAIMS, ('FORBIDDEN = re.compile(r"\\b(verified|live|production)\\b", re.IGNORECASE)', 'FORBIDDEN = re.compile(r"\\b(verified|live)\\b", re.IGNORECASE)'), tests=T_TOOLS),
+    M("claims checker: a negation excuses nothing", TCLAIMS, ("                    if not NEGATION.search(sentence[: m.start()]):", "                    if True:"), tests=T_TOOLS),
+    M("claims checker: a negation after the word excuses it", TCLAIMS, ("                    if not NEGATION.search(sentence[: m.start()]):", "                    if not NEGATION.search(sentence):"), tests=T_TOOLS),
+    M("claims checker: an observed fixture is not required", TCLAIMS, ("if INTEGRATIONS[i] is None or INTEGRATIONS[i] not in observed)", "if INTEGRATIONS[i] is None)"), tests=T_TOOLS),
+    M("claims checker: a table row is one sentence", TCLAIMS, ('        for cell in cleaned.split("|"):  # a table cell ends a sentence, whatever its punctuation', "        for cell in [cleaned]:"), tests=T_TOOLS),
+    M("claims checker: a code block is read as prose", TCLAIMS, ("        if in_fence:\n            continue", "        if False:\n            continue"), tests=T_TOOLS),
+    M("claims checker: a very long line is read whole", TCLAIMS, ("MAX_LINE_CHARS = 5000", "MAX_LINE_CHARS = 10**9"), tests=T_TOOLS),
+    M("claims checker: the exit code is 0 with findings", TCLAIMS, ("    if bad:\n        print(f\"{len(bad)} claim(s) stronger than the fixtures allow\")\n        return 1", "    if bad:\n        print(f\"{len(bad)} claim(s) stronger than the fixtures allow\")\n        return 0"), tests=T_TOOLS),
+    M("claims checker: an observed row is not read from SOURCE.md", TCLAIMS, ('cells[1].lower().startswith("observed")', 'cells[1].lower().startswith("doc")'), tests=T_TOOLS),
+    M("container smoke: the relay folder is mounted writable", TSMOKE, ('"-v", f"{relay_dir}:/smoke:ro"', '"-v", f"{relay_dir}:/smoke"'), tests=T_TOOLS),
+    M("container smoke: the container is published on the wrong port", TSMOKE, ('"-p", f"{port}:8000"', '"-p", f"{port}:8080"'), tests=T_TOOLS),
+    M("container smoke: the fake Slack port differs from the config", TSMOKE, ("FAKE_PORT = 8081", "FAKE_PORT = 8082"), tests=T_TOOLS),
+    M("container smoke: the inline worker is not switched on", TSMOKE, ('"RELAY_INLINE_WORKER": "1", ', ""), tests=T_TOOLS),
+    M("container smoke: waiting returns on the first look whatever it finds", TSMOKE, ("        value = cond()\n        if value:\n            return value", "        value = cond()\n        if True:\n            return value"), tests=T_TOOLS),
+    M("container smoke: the fake inside the container writes to another file", TSFAKE, ('LOG = "/tmp/slack-requests.jsonl"', 'LOG = "/tmp/other.jsonl"'), tests=T_TOOLS),
+    M("container smoke: the lead has no tenant to route to", TSMOKE, ('"type": "ContactCreate", "locationId": LOCATION,', '"type": "ContactCreate", "locationId": "NOWHERE",'), tests=T_TOOLS),
 ]
 
 

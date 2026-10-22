@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="t d">
+  <title id="t">How a lead moves through the relay</title>
+  <desc id="d">A HighLevel lead reaches the relay through the Cloudflare Worker or a workflow webhook, is stored once in one transaction with one delivery row per sink, and a worker sends each row to Slack, Make, Meta Conversions API and Google Sheets. Ad spend pulls, a Fathom webhook and a payment reconciliation sit beside it.</desc>
+  <style>
+    .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .core { fill: #ddf4ff; stroke: #0969da; stroke-width: 2; }
+    .sink { fill: #fff8c5; stroke: #9a6700; stroke-width: 1.5; }
+    .pull { fill: #dafbe1; stroke: #1a7f37; stroke-width: 1.5; }
+    .t { font: 600 15px sans-serif; fill: #1f2328; }
+    .s { font: 13px sans-serif; fill: #424a53; }
+    .h { font: 700 13px sans-serif; fill: #57606a; letter-spacing: 1px; }
+    .a { stroke: #57606a; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    .l { stroke: #57606a; stroke-width: 2; fill: none; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+  <rect width="960" height="420" fill="#ffffff"/>
+
+  <text class="h" x="30" y="30">LEADS</text>
+  <rect class="box" x="30" y="45" width="190" height="62" rx="8"/>
+  <text class="t" x="125" y="72" text-anchor="middle">HighLevel</text>
+  <text class="s" x="125" y="92" text-anchor="middle">lead, workflow, webhook</text>
+  <rect class="box" x="30" y="135" width="190" height="62" rx="8"/>
+  <text class="t" x="125" y="162" text-anchor="middle">Cloudflare Worker</text>
+  <text class="s" x="125" y="182" text-anchor="middle">edge/, signed, queued</text>
+
+  <text class="h" x="280" y="30">RELAY</text>
+  <rect class="core" x="280" y="45" width="270" height="62" rx="8"/>
+  <text class="t" x="415" y="72" text-anchor="middle">web: /ingest, /hooks, /webhooks</text>
+  <text class="s" x="415" y="92" text-anchor="middle">auth, raw bytes, 503 before commit</text>
+  <rect class="core" x="280" y="135" width="270" height="62" rx="8"/>
+  <text class="t" x="415" y="162" text-anchor="middle">store: SQLite or Postgres</text>
+  <text class="s" x="415" y="182" text-anchor="middle">event + one delivery per sink, one transaction</text>
+  <rect class="core" x="280" y="225" width="270" height="62" rx="8"/>
+  <text class="t" x="415" y="252" text-anchor="middle">worker: claim one row, send</text>
+  <text class="s" x="415" y="272" text-anchor="middle">lease, token, retry, pause, alert</text>
+
+  <text class="h" x="645" y="30">SINKS (FAKES ONLY)</text>
+  <rect class="sink" x="645" y="45" width="285" height="44" rx="8"/>
+  <text class="t" x="787" y="73" text-anchor="middle">Slack</text>
+  <rect class="sink" x="645" y="100" width="285" height="44" rx="8"/>
+  <text class="t" x="787" y="128" text-anchor="middle">Make</text>
+  <rect class="sink" x="645" y="155" width="285" height="44" rx="8"/>
+  <text class="t" x="787" y="183" text-anchor="middle">Meta Conversions API</text>
+  <rect class="sink" x="645" y="210" width="285" height="44" rx="8"/>
+  <text class="t" x="787" y="238" text-anchor="middle">Google Sheets</text>
+
+  <path class="a" d="M 125 107 L 125 135"/>
+  <path class="a" d="M 220 76 L 280 76"/>
+  <path class="a" d="M 220 166 L 250 166 L 250 90 L 280 90"/>
+  <path class="a" d="M 415 107 L 415 135"/>
+  <path class="a" d="M 415 197 L 415 225"/>
+  <path class="l" d="M 550 256 L 595 256 L 595 67"/>
+  <path class="a" d="M 595 67 L 645 67"/>
+  <path class="a" d="M 595 122 L 645 122"/>
+  <path class="a" d="M 595 177 L 645 177"/>
+  <path class="a" d="M 595 232 L 645 232"/>
+
+  <text class="h" x="30" y="330">ALSO IN THE PACKAGE</text>
+  <rect class="pull" x="30" y="345" width="210" height="52" rx="8"/>
+  <text class="t" x="135" y="368" text-anchor="middle">Ad spend pulls</text>
+  <text class="s" x="135" y="386" text-anchor="middle">Meta Insights, Windsor.ai</text>
+  <rect class="pull" x="260" y="345" width="210" height="52" rx="8"/>
+  <text class="t" x="365" y="368" text-anchor="middle">Fathom</text>
+  <text class="s" x="365" y="386" text-anchor="middle">webhook receiver and puller</text>
+  <rect class="pull" x="490" y="345" width="210" height="52" rx="8"/>
+  <text class="t" x="595" y="368" text-anchor="middle">Reconciliation</text>
+  <text class="s" x="595" y="386" text-anchor="middle">payments CSV against a ledger</text>
+  <rect class="pull" x="720" y="345" width="210" height="52" rx="8"/>
+  <text class="t" x="825" y="368" text-anchor="middle">Docker</text>
+  <text class="s" x="825" y="386" text-anchor="middle">builds and boots in CI</text>
+</svg>
