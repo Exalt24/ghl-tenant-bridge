@@ -385,12 +385,12 @@ def test_purge_nulls_old_payloads_and_dedupe_still_holds(store):
 
 def test_the_lease_uses_the_database_clock_not_the_process_clock(store, monkeypatch):
     put(store, key="clk", sinks=["slack"])
-    assert store.claim("slack", lease_s=300) is not None
     real = time.time
-    monkeypatch.setattr(time, "time", lambda: real() + 10 * 365 * 86400)  # a wildly wrong process clock
+    monkeypatch.setattr(time, "time", lambda: real() + 10 * 365 * 86400)  # a wildly wrong process clock, from the start
+    assert store.claim("slack", lease_s=300) is not None
     assert store.claim("slack", lease_s=300) is None  # still leased: the database says only a moment has passed
     store.advance(301)
-    assert store.claim("slack", lease_s=300) is not None
+    assert store.claim("slack", lease_s=300) is not None  # a lease read off the process clock would last ten years
 
 
 def test_concurrent_claims_never_hand_out_a_row_twice(store):

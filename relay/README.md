@@ -78,11 +78,11 @@ docker rm -f relay-pg
 
 Without `DATABASE_URL_TEST` the Postgres half is skipped and the run prints that it skipped. CI sets `RELAY_REQUIRE_POSTGRES=1`, which turns the skip into a failure.
 
-The mutation harness copies the package, breaks one guard per mutant, and requires the suite to go red. A mutated tree that no longer imports does not count as caught.
+The mutation harness copies the package, breaks one guard per mutant, and counts it caught only when a named test fails for the mutated behaviour and that same test passes on the unmutated copy. A tree that no longer imports, a fixture error or a missing test file is reported as BROKEN, not caught. `--shard i/n` runs every n-th mutant, which is how CI splits the list across three runners.
 
 ### Counts
 
-From a run on 2026-10-22: 444 tests passed on SQLite and Postgres 17 together (pytest counts each store backed test once per store), and the test files hold 566 `assert` statements (a static count, pytest does not count executed assertions). `python tests/mutants.py` ran 111 mutants on 2026-10-22 and caught all 111. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
+From a run on 2026-10-22: 467 tests passed and 1 skipped on SQLite and Postgres 17 together (pytest counts each store backed test once per store; the skip is the Postgres row lock test, which has no SQLite counterpart), and the test files hold 597 `assert` statements (a static count, pytest does not count executed assertions). `python tests/mutants.py` ran 111 mutants on 2026-10-22 and every one was caught by a named failing test that passes on the unmutated tree. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
 
 
 ## Deploy on Railway (notes, not done)
