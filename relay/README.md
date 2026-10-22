@@ -6,7 +6,7 @@ A Python and Flask service that takes a HighLevel lead delivery and fans it out 
 
 No real vendor account was used for any of it. Every vendor is a local fake written from a saved copy of the vendor's own documentation, so this page claims what the fakes and the tests show and nothing more. Delivery is at least once with a stored outcome per event and sink, and an idempotent effect only where the vendor offers one. It is NOT exactly once: Slack and Make document no idempotency key, so a send that ends in a 5xx or a timeout may post twice, and the Slack footer carries the first 8 characters of the event id so a duplicate is recognisable.
 
-**At a glance** (one full local pass on 2026-10-23, details under Counts): 1834 tests pass on SQLite and Postgres 17, 531 mutants each break one guard and every one is caught by a named failing test, and a container smoke test sends one lead through the built image to a fake Slack. Nothing was run against a real vendor.
+**At a glance** (one full local pass on 2026-10-23, details under Counts): 1912 tests pass on SQLite and Postgres 17, 531 mutants each break one guard and every one is caught by a named failing test, and a container smoke test sends one lead through the built image to a fake Slack. Nothing was run against a real vendor.
 
 ## Register
 
@@ -61,9 +61,9 @@ Without `DATABASE_URL_TEST` the Postgres half is skipped and the run prints that
 
 ## Counts
 
-From one full local pass after the last code change: 1834 tests passed and 2 skipped on SQLite and Postgres together, run in four chunks on 2026-10-23 with `RELAY_REQUIRE_POSTGRES=1` against Postgres 17 (pytest counts each store backed test once per store; the skips are the Postgres row lock test and the SQLite lock row expiry test, each of which has no counterpart on the other store). The 36 test files hold 1778 lines whose first word is `assert` (a static count that includes indented lines, pytest does not count executed assertions).
+From one full local pass after the last code change: 1912 tests passed and 2 skipped on SQLite and Postgres together, run in four chunks on 2026-10-23 with `RELAY_REQUIRE_POSTGRES=1` against Postgres 17 (pytest counts each store backed test once per store; the skips are the Postgres row lock test and the SQLite lock row expiry test, each of which has no counterpart on the other store). The 36 test files hold 1783 lines whose first word is `assert` (a static count that includes indented lines, pytest does not count executed assertions).
 
-`python tests/mutants.py` holds 531 mutants: 111 from tier 1, 190 from tier 2, 215 from tier 3 and 15 from the first output pass. On 2026-10-23 all 8 local shards, `--shard 1/8` to `8/8`, ran and every one of the 531 was caught by a named failing test that passes on the unmutated tree. CI runs the same list in 8 shards. The container smoke test passed on the same day. `tests/corpus/relay_corpus_1.jsonl` keeps the 60 cases an independent reviewer wrote against the relay, and `tests/test_output_corpus.py` replays the eight that disagreed. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
+`python tests/mutants.py` holds 533 mutants: 111 from tier 1, 190 from tier 2, 215 from tier 3 and 17 from the first output pass. On 2026-10-23 all 8 local shards, `--shard 1/8` to `8/8`, ran and every one of the 533 was caught by a named failing test that passes on the unmutated tree. CI runs the same list in 8 shards. The container smoke test passed on the same day. `tests/corpus/` keeps the 60 cases an independent reviewer wrote, and `tests/test_output_corpus.py` replays the eight that disagreed. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
 
 ## Deploy on Railway (notes, not done)
 
