@@ -1,3 +1,4 @@
+# LIFESPAN: permanent (relay tooling that the README lists as a command)
 """Fails when relay/README.md says "verified", "live" or "production" for an integration whose fixtures are all `doc`.
 
     python tools/check_readme_claims.py            check relay/README.md against relay/contracts/*/SOURCE.md

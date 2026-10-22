@@ -1,3 +1,4 @@
+# LIFESPAN: permanent (relay tooling that the README lists as a command)
 """Runs the Slack fake INSIDE the relay container, so the container smoke test can send a lead through the real image to a vendor
 that is not the real vendor.
 
@@ -25,7 +26,7 @@ def main() -> int:
         before = fake.effects
         response = fake(environ, start_response)
         if fake.effects > before:
-            with open(LOG, "a", encoding="utf-8") as fh:
+            with open(LOG, "a", encoding="utf-8") as fh:  # live-write-ok: runs inside a throwaway container, and the smoke test reads this fixed path back
                 fh.write(json.dumps(fake.requests[-1]["json"]) + "\n")
         return response
 

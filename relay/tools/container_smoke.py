@@ -1,3 +1,4 @@
+# LIFESPAN: permanent (relay tooling that the README lists as a command)
 """Boots the relay image and sends one lead through it, against a fake Slack running inside the same container.
 
     python tools/container_smoke.py --build        build the image first, then run the checks
