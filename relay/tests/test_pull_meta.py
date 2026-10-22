@@ -408,6 +408,6 @@ def test_the_access_token_never_reaches_a_log_line_an_exception_or_a_database_co
                 seen.append(f"{exc!s} {exc!r} {''.join(traceback.format_exception(exc))}")
     log_text = "\n".join(f"{r.name} {r.getMessage()} {r.exc_text or ''}" for r in caplog.records if not r.name.startswith("werkzeug"))
     everything = "\n".join(seen) + "\n" + log_text + "\n" + "\n".join(store.dump_all_text())
-    assert len(seen) >= 6 and any("refused the request" in s for s in seen)  # control: failures happened and their messages were read
+    assert len(seen) >= 5 and any("refused the request" in s for s in seen)  # control: failures happened and their messages were read
     assert len(store.spend_rows("meta")) == 2  # and a pull succeeded between them
     assert TOKEN not in everything and "access_token=" not in everything

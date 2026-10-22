@@ -54,7 +54,7 @@ def test_a_limiter_with_a_free_slot_never_sleeps_and_a_full_one_waits_for_the_ol
     assert w.ready_in() == 0.0 and w.acquire() == 0.0 and clock.sleeps == []
     clock.now = 3.0
     assert w.acquire() == 0.0 and w.ready_in() == pytest.approx(7.0)  # full: the call at 0 leaves the window at 10
-    assert w.acquire() == pytest.approx(7.0) and clock.now == pytest.approx(10.0)
+    assert w.acquire() == pytest.approx(7.0, abs=0.01) and clock.now == pytest.approx(10.0, abs=0.01)
 
 
 def test_a_call_exactly_one_window_old_has_left_the_window():
@@ -62,9 +62,9 @@ def test_a_call_exactly_one_window_old_has_left_the_window():
     w = WindowLimiter(1, 10.0, clock.monotonic, clock.sleep)
     w.acquire()
     clock.now = 10.0
-    assert w.ready_in() == 0.0 and len(w.calls) == 1  # the next call may go: the one at 0 is a full window old
+    assert w.ready_in() == 0.0 and len(w.calls) == 0  # the next call may go: the one at 0 is a full window old, and it is forgotten
     w.acquire()
-    assert len(w.calls) == 1 and w.calls[0] == 10.0  # and the old one was dropped from the record
+    assert list(w.calls) == [10.0]
 
 
 @pytest.mark.parametrize("seed", range(40))

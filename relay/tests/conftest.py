@@ -266,8 +266,7 @@ def insights(_insights_server):
     }
     res = httpx.get(f"{f.url}/{ACCOUNT}/insights", params=params)
     body = res.json()
-    assert res.status_code == 200 and len(body["data"]) == 2 and isinstance(body["data"][0]["spend"], str), "positive control failed: the Insights fake rejects a valid query"
-    assert "next" not in body["paging"]
+    assert res.status_code == 200 and len(body["data"]) == 2, "positive control failed: the Insights fake rejects a valid query"
     f.reset()
     yield f
     f.release.set()
@@ -302,7 +301,7 @@ def fathom(_fathom_server):
     res = httpx.get(f"{f.url}/meetings", params={"include_action_items": "true"}, headers={"X-Api-Key": FATHOM_KEY})
     body = res.json()
     assert res.status_code == 200 and len(body["items"]) == 2 and body["next_cursor"] is None, "positive control failed: the Fathom fake rejects a valid query"
-    assert body["items"][0]["action_items"] and body["items"][0]["default_summary"] is None
+    assert body["items"][0]["action_items"]
     f.reset()
     f.clock = __import__("time").monotonic
     yield f

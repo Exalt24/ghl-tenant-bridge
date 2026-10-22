@@ -114,11 +114,12 @@ def test_requirements_are_exact_pins():
 def test_ci_has_a_relay_job_with_postgres_and_every_action_pinned_by_sha():
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     job = ci[ci.index("\n  relay:"):ci.index("\n  # The mutants are split")]
-    assert "working-directory: relay" in job and "image: postgres:17" in job and "timeout-minutes: 10" in job
+    assert "working-directory: relay" in job and "image: postgres:17" in job and "timeout-minutes: 25" in job
     assert "python -m pytest" in job and 'RELAY_REQUIRE_POSTGRES: "1"' in job and "docker build" in job
+    assert "python tools/container_smoke.py" in job and "python tools/check_readme_claims.py" in job
     mutants = ci[ci.index("\n  relay-mutants:"):]
-    assert "shard: [1, 2, 3, 4, 5]" in mutants and "tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/5" in mutants
-    assert "image: postgres:17" in mutants and "timeout-minutes: 10" in mutants
+    assert "shard: [1, 2, 3, 4, 5, 6, 7, 8]" in mutants and "tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/8" in mutants
+    assert "image: postgres:17" in mutants and "timeout-minutes: 15" in mutants
     uses = re.findall(r"uses:\s*(\S+)", ci)
     assert uses and all(re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", u) for u in uses), uses
     assert any(u.startswith("actions/setup-python@") for u in uses)
@@ -142,11 +143,15 @@ def test_the_example_config_loads_with_local_urls_and_holds_no_value_only_names(
     env = {
         "RELAY_ENV": "test", "RELAY_INGEST_TOKEN": "i" * 20, "ACME_WORKFLOW_SECRET": "w" * 20,
         "ACME_SLACK_URL": "http://127.0.0.1:9/slack", "ACME_MAKE_URL": "http://127.0.0.1:9/make", "ACME_MAKE_KEY": "k" * 20,
+        "ACME_FATHOM_SECRET": "whsec_" + "QUJD" * 8, "ACME_INSIGHTS_BASE_URL": "http://127.0.0.1:9/v26.0", "ACME_INSIGHTS_TOKEN": "t" * 20,
+        "ACME_AD_ACCOUNT": "act_fake01", "ACME_WINDSOR_BASE_URL": "http://127.0.0.1:9", "ACME_WINDSOR_KEY": "w" * 20,
+        "ACME_FATHOM_BASE_URL": "http://127.0.0.1:9/external/v1", "ACME_FATHOM_KEY": "f" * 20,
         "RELAY_CONFIG": json.dumps(example),
     }
     cfg = load_config(env)
     assert cfg.tenants["acme"].enabled_sinks() == ["make", "slack"]
-    assert all(k.endswith("_env") or k in ("sinks", "dedupe_window_s") for k in example["tenants"]["acme"])
+    assert sorted(cfg.tenants["acme"].pulls) == ["fathom", "meta_insights", "windsor"] and cfg.tenants["acme"].fathom is not None
+    assert all(k.endswith("_env") or k in ("sinks", "dedupe_window_s", "fathom", "pulls") for k in example["tenants"]["acme"])
 
 
 # ---- the README register -----------------------------------------------------------------------------------------------------
@@ -175,14 +180,16 @@ def test_the_register_has_a_row_with_four_cells_for_every_integration():
     assert header and [c.strip() for c in header[0].strip("|").split("|")] == ["integration", "what ran", "what did not", "provenance"]
 
 
-def test_rows_for_integrations_not_built_yet_say_so_and_built_ones_do_not():
+def test_every_integration_is_built_and_each_row_says_what_ran_and_what_did_not():
     rows = register_rows()
-    for name in ("Meta Insights", "Windsor.ai", "Fathom", "Reconciliation"):
-        assert "NOT BUILT YET" in rows[name][1], name
-    for name in ("Slack", "Make", "Meta Conversions API", "Google Sheets"):
-        assert "NOT BUILT YET" not in " ".join(rows[name]), name
-        assert "doc" in rows[name][3] and "observed" not in rows[name][3].lower().replace("nothing is observed", ""), name
+    for name, cells in rows.items():
+        assert "NOT BUILT YET" not in " ".join(cells), name
+    for name in ("Slack", "Make", "Meta Conversions API", "Google Sheets", "Meta Insights", "Windsor.ai", "Fathom"):
+        assert rows[name][3].startswith("doc:") and "observed" not in rows[name][3].lower(), name
+        assert "No real" in rows[name][2], name  # the "what did not" cell names the real account that was never used
         assert "ASSUMED" in " ".join(rows[name]) or name in ("Slack",), name  # a doc only integration names what is assumed
+    assert "Not deployed" in rows["Railway"][1] or "not deployed" in rows["Railway"][1]
+    assert "tools/container_smoke.py" in rows["Docker"][1] and "No orchestrated deployment" in rows["Docker"][2]
 
 
 def test_the_readme_says_no_real_vendor_account_was_used_and_never_calls_a_doc_integration_verified_or_live():

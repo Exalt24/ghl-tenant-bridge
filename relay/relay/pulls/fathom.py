@@ -27,7 +27,7 @@ from ..config import PullCfg
 from ..fathom_hook import action_items_text, normalise_meeting
 from ..http import PULL_BODY_TEXT, HttpError
 from ..store.base import SqlStore
-from .common import MAX_PAGES, MAX_TRIES, PullAbort, PullEnv, PullError, PullResult, PullThrottled, Waiter, WindowLimiter, backoff_s
+from .common import MAX_PAGES, MAX_TRIES, SLEEP_PAD_S, PullAbort, PullEnv, PullError, PullResult, PullThrottled, Waiter, WindowLimiter, backoff_s
 
 __all__ = ["FathomLimiter", "pull_fathom"]
 
@@ -55,8 +55,8 @@ class FathomLimiter:
                 if heavy:
                     self.heavy_window.record()
                 return waited
-            self.env.sleeper(need)
-            waited += need
+            self.env.sleeper(need + SLEEP_PAD_S)
+            waited += need + SLEEP_PAD_S
 
 
 def _retry_after_s(headers: dict[str, str]) -> float:

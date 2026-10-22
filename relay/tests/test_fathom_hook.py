@@ -15,7 +15,9 @@ from relay.fathom_hook import normalise_meeting, parse_secret, sign, verify
 
 from .fakes.fathom import WEBHOOK_SECRET, make_meeting, sign_webhook
 
-KEY = parse_secret(WEBHOOK_SECRET)
+def _key() -> bytes:
+    return parse_secret(WEBHOOK_SECRET)  # called inside each test, so a broken parse_secret fails a test and not the whole import
+
 NOW = 1_760_000_000.0
 BODY = json.dumps({"recording_id": 5001, "title": "Weekly sync"}).encode()
 
@@ -26,7 +28,7 @@ def headers(body: bytes = BODY, *, mid: str = "msg_1", ts: int | None = None, se
 
 
 def ok(h, body=BODY, tolerance=300.0, now=NOW):
-    return verify(KEY, h, body, now, tolerance)
+    return verify(_key(), h, body, now, tolerance)
 
 
 def test_a_correctly_signed_delivery_is_accepted():
@@ -37,7 +39,7 @@ def test_the_signature_the_relay_makes_equals_the_independent_signer():
     for i in range(20):
         body = bytes(random.Random(i).randrange(256) for _ in range(random.Random(i).randrange(0, 400)))
         mid, ts = f"msg_{i}", 1_700_000_000 + i
-        assert "v1," + sign(KEY, mid, str(ts), body) == sign_webhook(WEBHOOK_SECRET, mid, ts, body)
+        assert "v1," + sign(_key(), mid, str(ts), body) == sign_webhook(WEBHOOK_SECRET, mid, ts, body)
 
 
 def test_header_names_are_read_case_insensitively():
@@ -250,5 +252,5 @@ def test_property_only_a_delivery_signed_with_the_secret_inside_the_window_is_ev
                 entries.append("v1,junk" + str(rng.randrange(100)))
         rng.shuffle(entries)
         h = {"webhook-id": mid, "webhook-timestamp": str(ts), "webhook-signature": " ".join(entries)}
-        verdict = verify(KEY, h, body, NOW, 300.0)
+        verdict = verify(_key(), h, body, NOW, 300.0)
         assert (verdict is None) == (should_pass and valid_present), (seed, skew, entries)

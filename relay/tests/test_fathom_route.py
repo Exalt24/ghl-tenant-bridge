@@ -230,7 +230,7 @@ def test_the_meeting_reaches_slack_through_the_worker_once_even_when_fathom_retr
     mrkdwn = [b["text"]["text"] for b in sent["blocks"] if b["type"] == "section"] + [e["text"] for b in sent["blocks"] if b["type"] == "context" for e in b["elements"]]
     assert mrkdwn and all("<script>" not in t and t.count("<") == 0 for t in mrkdwn)
     assert sent["blocks"][0]["text"]["type"] == "plain_text"  # the header block is plain text, which Slack never parses, as in the lead message
-    assert "## Summary" in texts and "Send recap 1" in texts and "msg_abcd" in texts  # the footer carries 8 characters of the event id
+    assert "## Summary" in texts and "Send recap 1" in texts and "event `msg_abcd` for acme" in texts and "msg_abcde" not in texts  # the footer carries exactly 8 characters of the event id
     post(client, meeting, mid="msg_abcdef123")  # Fathom retries after the message was already delivered
     rig.settle()
     assert slack.effects == 1 and store.delivery("msg_abcdef123", "slack")["state"] == "done"

@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-__all__ = ["PullAbort", "PullEnv", "PullError", "PullResult", "PullThrottled", "WindowLimiter", "backoff_s"]
+__all__ = ["SLEEP_PAD_S", "PullAbort", "PullEnv", "PullError", "PullResult", "PullThrottled", "WindowLimiter", "backoff_s"]
 
 MAX_TRIES = 6
 MAX_WAIT_S = 300.0  # one wait inside a run; a vendor that asks for longer is answered by ending the run
@@ -32,6 +32,7 @@ MAX_TOTAL_WAIT_S = 900.0  # all waits in one run
 BACKOFF_BASE_S = 5.0
 BACKOFF_CAP_S = 120.0
 MAX_PAGES = 2000  # a corrupt cursor chain must end somewhere
+SLEEP_PAD_S = 0.001  # a limiter sleeps this much past the moment a slot frees, so float rounding can never leave it one ulp short and spinning
 
 
 class PullError(Exception):
@@ -121,5 +122,5 @@ class WindowLimiter:
             if need <= 0:
                 self.record()
                 return waited
-            self.sleeper(need)
-            waited += need
+            self.sleeper(need + SLEEP_PAD_S)
+            waited += need + SLEEP_PAD_S
