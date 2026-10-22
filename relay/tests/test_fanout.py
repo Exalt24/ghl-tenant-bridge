@@ -126,6 +126,7 @@ def test_plan_terminal_outcomes(slack, make):
     assert skipped.state == "skipped" and skipped.alerts == [] and skipped.min_interval_s is None
     loud = plan_for(Outcome.skipped("event has no type field", alert=True), claim(), scfg(cfg), rng, sent=False)
     assert loud.state == "skipped" and loud.alerts == [("skipped", "event has no type field")]  # a skip that asks to be heard is
+    assert plan_for(Outcome.skipped("", alert=True), claim(), scfg(cfg), rng, sent=False).alerts == [("skipped", "skipped")]
     pause = plan_for(Outcome.pause("forbidden (403)"), claim(), scfg(cfg), rng, sent=True)
     assert pause.state == "pending" and pause.attempts_inc == 0 and pause.pause_s == 900.0 and pause.alerts == [("pause", "forbidden (403)")]
 
@@ -133,12 +134,13 @@ def test_plan_terminal_outcomes(slack, make):
 def test_the_alert_digest_counts_skipped_alerts_apart_from_dead_and_paused_ones():
     from relay.alerts import digest_text
 
-    rows = [
-        {"kind": "skipped", "tenant": "acme", "reason": "event has no type field"}, {"kind": "skipped", "tenant": "acme", "reason": "event has no type field"},
+    rows = [{"kind": "skipped", "tenant": "acme", "reason": "event has no type field"} for _ in range(3)] + [
         {"kind": "dead", "tenant": "acme", "reason": "http 400"}, {"kind": "pause", "tenant": "beta", "reason": "forbidden"},
+        {"kind": "routing", "tenant": None, "reason": "unmapped location"},
     ]
     text = digest_text("capi", rows)
-    assert "4 item(s)" in text and "1 dead, 1 paused, 2 skipped" in text and "other" not in text and "tenants acme, beta" in text
+    assert "6 item(s)" in text and "1 dead, 1 paused, 3 skipped, 1 other" in text and "tenants acme, beta" in text
+    assert digest_text("capi", rows[:3]) == "relay alert, capi: 3 item(s). 3 skipped. tenants acme. reasons: event has no type field"
 
 
 def test_an_unknown_outcome_kind_is_dead_never_a_silent_success(slack, make):
