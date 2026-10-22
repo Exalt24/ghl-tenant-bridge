@@ -21,7 +21,7 @@ from werkzeug.wrappers import Response
 from relay import attribution, ghl
 from relay.config import ConfigError, load_config
 from relay.http import Http
-from relay.sinks.base import DEAD, DONE, PAUSE, RETRY, SKIPPED, Event, SinkContext
+from relay.sinks.base import DEAD, DONE, PAUSE, RETRY, SKIPPED, Event, Outcome, SinkContext
 from relay.sinks.capi import DEFAULT_EVENT_MAP, MAX_EVENT_AGE_S, CapiSink, regain_wait_s
 
 from .fakes.meta_graph import PIXEL_ID, TOKEN, FakeMeta
@@ -381,6 +381,9 @@ def test_an_event_with_no_type_at_all_is_skipped_and_asks_for_an_alert_naming_th
     out = send(at_now, {k: v for k, v in ad_payload().items() if k != "type"})
     assert out.kind == SKIPPED and out.alert is True and "type" in out.reason and "Lead" in out.reason
     assert send(at_now, ad_payload(type="")).alert is True  # a blank type is the same mistake
+    # No other outcome, and a skip built without the flag, asks for an alert: a designed skip stays quiet.
+    assert Outcome.skipped("no click id").alert is False and Outcome(SKIPPED, reason="x").alert is False
+    assert Outcome.done().alert is False and Outcome.dead("x").alert is False and Outcome.retry().alert is False
     assert at_now.requests == []
 
 
