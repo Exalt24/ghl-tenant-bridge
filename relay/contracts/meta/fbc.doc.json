@@ -1,0 +1,9 @@
+{
+  "format": "fb.<subdomainIndex>.<creationTime in milliseconds>.<fbclid>",
+  "subdomain_index_on_a_server": 1,
+  "fbclid_is_case_sensitive": true,
+  "example_fbclid": "IwAR2F4-dbP0l7Mn1IawQQGCINEz7PYXQvwjNwB_qa2ofrHyiLjcbCRxTDMgk",
+  "example_creation_time_ms": 1554763741205,
+  "example_fbc": "fb.1.1554763741205.IwAR2F4-dbP0l7Mn1IawQQGCINEz7PYXQvwjNwB_qa2ofrHyiLjcbCRxTDMgk",
+  "example_fbp": "fb.1.1596403881668.1116446470"
+}

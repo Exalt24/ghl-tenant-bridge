@@ -17,6 +17,23 @@ def worker_env(slack_url, make_url, **extra):
     return env
 
 
+def test_repeated_passes_do_not_leave_a_database_connection_behind_per_thread(store, slack, make):
+    cfg = make_cfg(slack.url, make.url)
+    worker = Worker(cfg, store, Http(), sleeper=store.advance)
+    worker.run_once(wait_horizon_s=0)
+    baseline = len(store._conns)
+    for _ in range(12):
+        worker.run_once(wait_horizon_s=0)
+    assert len(store._conns) == baseline <= 2  # this thread's own, and nothing from the pass threads
+
+
+def test_a_released_connection_is_reopened_on_the_next_use(store):
+    assert store.ping() is True
+    store.release_connection()
+    store.release_connection()  # nothing to release the second time
+    assert store.ping() is True
+
+
 def test_once_drains_what_is_due_and_exits(store, slack, make):
     env = worker_env(slack.url, make.url)
     cfg = load_config(env, role="worker_once")

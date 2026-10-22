@@ -18,6 +18,8 @@ from relay.http import Http
 from relay.store.sqlite import SqliteStore
 
 from .fakes.make import FakeMake
+from .fakes.meta_graph import PIXEL_ID, TOKEN, FakeMeta
+from .fakes.sheets import SPREADSHEET_ID, FakeSheets, service_account_json
 from .fakes.slack import FakeSlack
 
 PG_URL = os.environ.get("DATABASE_URL_TEST")
@@ -94,6 +96,99 @@ def _make_server():
     s = FakeMake().start()
     yield s
     s.stop()
+
+
+@pytest.fixture(scope="session")
+def _meta_server():
+    s = FakeMeta().start()
+    yield s
+    s.stop()
+
+
+def _valid_meta_event(event_id: str = "control-1") -> dict:
+    return {
+        "event_name": "Lead", "event_time": int(__import__("time").time()) - 60, "event_id": event_id, "action_source": "system_generated",
+        "user_data": {"em": "62a14e44f765419d10fea99367361a727c12365e2520f32218d505ed9aa0f62f", "fbc": "fb.1.1554763741205.AbCdEf"},
+    }
+
+
+@pytest.fixture
+def meta(_meta_server):
+    """The Meta fake, after a POSITIVE CONTROL: a valid event must be accepted before any test may rely on a refusal."""
+    import time
+
+    m = _meta_server
+    m.reset()
+    m.clock = time.time
+    res = httpx.post(f"{m.url}/{PIXEL_ID}/events", params={"access_token": TOKEN}, json={"data": [_valid_meta_event()]})
+    assert res.status_code == 200 and res.json()["events_received"] == 1, "positive control failed: the Meta fake rejects a valid event"
+    assert m.effects == 1
+    m.reset()
+    yield m
+    m.release.set()
+    m.reset()
+    m.clock = time.time
+
+
+@pytest.fixture(scope="session")
+def rsa_key():
+    """One throwaway RSA key for the whole run. It signs service account assertions and is thrown away with the process."""
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="session")
+def _sheets_server(rsa_key):
+    s = FakeSheets(rsa_key.public_key()).start()
+    yield s
+    s.stop()
+
+
+def _control_jwt(key, email: str, aud: str, now: float) -> str:
+    """A valid assertion built here with its own few lines, never with the relay's code, so the positive control cannot
+    pass because the relay and the fake agree on the same mistake."""
+    import base64
+    import json as _json
+
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+
+    def enc(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+    head = enc(_json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    body = enc(_json.dumps({"iss": email, "scope": "https://www.googleapis.com/auth/spreadsheets", "aud": aud, "iat": int(now), "exp": int(now) + 3600}).encode())
+    sig = key.sign(f"{head}.{body}".encode(), padding.PKCS1v15(), hashes.SHA256())
+    return f"{head}.{body}.{enc(sig)}"
+
+
+@pytest.fixture
+def sheets(_sheets_server, rsa_key):
+    """The Sheets fake after a POSITIVE CONTROL: a correctly signed assertion earns a token and a valid append lands."""
+    import time
+
+    s = _sheets_server
+    s.reset()
+    s.clock = time.time
+    tok = httpx.post(s.token_url, data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": _control_jwt(rsa_key, s.email, s.token_url, time.time())})
+    assert tok.status_code == 200, "positive control failed: the Sheets fake rejects a valid assertion"
+    res = httpx.post(
+        f"{s.url}/v4/spreadsheets/{SPREADSHEET_ID}/values/Sheet1:append", params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"},
+        json={"values": [["control", "x"]]}, headers={"Authorization": "Bearer " + tok.json()["access_token"]},
+    )
+    assert res.status_code == 200 and s.effects == 1, "positive control failed: the Sheets fake rejects a valid append"
+    s.reset()
+    s.clock = time.time
+    yield s
+    s.release.set()
+    s.reset()
+    s.clock = time.time
+
+
+@pytest.fixture
+def sa_json(sheets, rsa_key):
+    return service_account_json(rsa_key, sheets.token_url, sheets.email)
 
 
 @pytest.fixture

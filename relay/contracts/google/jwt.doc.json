@@ -1,0 +1,16 @@
+{
+  "header": {"alg": "RS256", "typ": "JWT"},
+  "header_note": "Google's decoded example also carries kid, the private_key_id of the key file. RS256 as RSASSA-PKCS1-v1_5 with SHA-256 and base64url without padding are tagged doc: RFC 7515 and RFC 7518 (not retrieved).",
+  "claims": {"iss": "email of the service account", "scope": "https://www.googleapis.com/auth/spreadsheets", "aud": "https://oauth2.googleapis.com/token", "iat": "issue time, Unix seconds", "exp": "iat plus 3600"},
+  "lifetime_s": 3600,
+  "max_lifetime_s": 3900,
+  "max_lifetime_note": "invalid_grant 'Token must be a short-lived token (60 minutes)' also happens if the exp value is more than 65 mins in the future from the iat value, or lower than iat",
+  "encoding_note": "it must be Base64-encoded, without newlines or padding equal signs",
+  "errors": {
+    "invalid_grant": ["Invalid JWT Signature.", "Invalid JWT: Token must be a short-lived token (60 minutes) and in a reasonable timeframe."],
+    "invalid_scope": ["Invalid OAuth scope or ID token audience provided."],
+    "disabled_client": ["The OAuth client was disabled."],
+    "deleted_client": ["The OAuth client being used to make the request has been deleted."]
+  },
+  "access_token_ttl_s": 3600
+}

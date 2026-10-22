@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
   last_error   TEXT,
   effect_ref   TEXT,
   finished_at  TIMESTAMPTZ,
+  claims       INTEGER NOT NULL DEFAULT 0,
+  maybe_acted_at TIMESTAMPTZ,
   PRIMARY KEY (event_id, sink)
 );
 CREATE INDEX IF NOT EXISTS deliveries_due ON deliveries (sink, state, next_at);

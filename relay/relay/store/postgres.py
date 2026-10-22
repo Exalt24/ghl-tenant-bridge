@@ -85,6 +85,16 @@ class PostgresStore(SqlStore):
                 pass
         self._local = type(self._local)()
 
+    # ---- one append in flight per key: a session advisory lock on this thread's connection ----------------------
+    # The lock belongs to the connection, so a worker that dies drops it with the connection, and a lock cannot
+    # outlive its holder the way a row could. `ttl_s` only matters to the SQLite lock row.
+    def _lock_try(self, key: str, holder: str, ttl_s: float) -> bool:
+        row = self._conn().execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS got", (key,)).fetchone()
+        return bool(row["got"])
+
+    def _lock_release(self, key: str, holder: str) -> None:
+        self._conn().execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (key,))
+
     def _table_names(self, t: Any) -> list[str]:
         rows = t.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"

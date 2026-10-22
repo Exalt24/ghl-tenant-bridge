@@ -154,6 +154,10 @@ def normalise_lead(payload: Any) -> dict[str, Any]:
     sparse one, because one bad lead must never stop the fan-out."""
     if not isinstance(payload, dict):
         return _empty_lead()
+    if isinstance(payload.get("data"), dict):
+        # The integration guide's envelope wraps the fields in `data`, the per event pages show them flat (ASSUMED which
+        # one a live delivery uses). Read either: the envelope's own keys win over a field of the same name inside it.
+        payload = {**payload["data"], **{k: v for k, v in payload.items() if k != "data"}}
     inner = payload.get("appointment") if isinstance(payload.get("appointment"), dict) else None
     src = inner if inner is not None else payload
 

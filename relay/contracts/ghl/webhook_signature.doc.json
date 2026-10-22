@@ -1,0 +1,15 @@
+{
+  "headers": {
+    "X-GHL-Signature": "Ed25519, current. Prefer this header when present.",
+    "X-WH-Signature": "RSA-SHA256, legacy. Announced for deprecation on 2026-09-01; its removal was not observed, so the relay refuses a request that carries only this one."
+  },
+  "ed25519_public_key_spki_base64": "MCowBQYDK2VwAyEAi2HR1srL4o18O8BRa7gVJY7G7bupbN3H9AwJrHCDiOg=",
+  "signed_bytes": {
+    "provenance": "ASSUMED",
+    "note": "The vendor's own sample verifies JSON.stringify(req.body), not the raw bytes. The relay accepts a signature over the raw bytes OR over the compact re-serialisation json.dumps(obj, separators=(',', ':')). A live delivery would settle which one is needed."
+  },
+  "retries": "any non-2xx is retried up to 12 times, excluding the original attempt, with exponential backoff and jitter",
+  "dedupe": "the page says to store webhook ids to dedupe",
+  "envelope_shown_on_the_integration_guide": {"type": "ContactCreate", "timestamp": "2025-01-28T14:35:00.000Z", "webhookId": "test-123", "data": {"firstName": "John", "lastName": "Doe", "email": "john@example.com"}},
+  "envelope_note": "The per event pages show a flat object with no webhookId and no data wrapper. The two disagree, so the relay reads either shape and uses a synthesised key when there is no webhookId (ASSUMED, confirm on a live delivery)."
+}

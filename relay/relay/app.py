@@ -1,4 +1,4 @@
-"""Flask app: the ingress routes. Tier 1 routes are /health, /ingest, /hooks/<tenant>/workflow and the two admin routes.
+"""Flask app: the ingress routes. /health, /ingest, /hooks/<tenant>/workflow, /webhooks/ghl and the two admin routes.
 
 Rules every route follows:
   - Auth before anything else is read. Secrets are compared with hmac.compare_digest.
@@ -14,9 +14,10 @@ import hmac
 import json
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -40,6 +41,8 @@ MAX_EVENT_KEY_CHARS = 256
 class Deps:
     store: SqlStore
     http: Any = None
+    # Seconds since the epoch. Only the optional HighLevel timestamp window reads it; a test injects a fixed one.
+    clock: Callable[[], float] = time.time
 
 
 def _eq(a: str, b: str) -> bool:
@@ -173,6 +176,51 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
             return _err(503, "unrouted")
         except Exception as exc:
             log.error("workflow ingest failed before commit: %s", type(exc).__name__)
+            return _err(503, "store")
+        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})
+
+    @app.post("/webhooks/ghl")
+    def ghl_route() -> Response:
+        """The direct HighLevel marketplace webhook. The signature is checked over the exact bytes received (or over the
+        compact re-serialisation, because HighLevel's own sample verifies JSON.stringify(req.body) and which one a live
+        delivery needs is not known), and only then are the SAME bytes parsed."""
+        raw = read_body(cfg.ghl_webhook_max_body_bytes)
+        signature = ghl.signature_header(request.headers)
+        if signature is None:
+            # A request carrying ONLY the legacy X-WH-Signature is refused: announced for deprecation on 2026-09-01.
+            return _err(401, "legacy-signature-refused" if request.headers.get("X-WH-Signature") else "unauthorised")
+        try:
+            how = ghl.verify_signature(raw, signature, cfg.ghl_public_key_b64)
+        except Exception as exc:  # a malformed configured key is our fault, not the sender's
+            log.error("signature check could not run: %s", type(exc).__name__)
+            return _err(503, "signature-check")
+        if how is None:
+            return _err(401, "unauthorised")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return _err(400, "not-json")
+        if not isinstance(payload, dict):
+            return _err(400, "not-an-object")
+        try:
+            tenant = fanout.route(cfg, payload)
+        except Unrouted as exc:
+            alert_routing(cfg.tenant_for_location(payload.get("locationId")), str(exc))
+            return _err(503, "unrouted")
+        if cfg.tenants[tenant].ghl_timestamp_window and not ghl.timestamp_ok(payload.get("timestamp"), deps.clock() * 1000):
+            return _err(401, "timestamp-outside-window")
+        webhook_id = payload.get("webhookId")
+        native = webhook_id if isinstance(webhook_id, str) and 0 < len(webhook_id) <= MAX_KEY_CHARS else None
+        try:
+            key, basis = ghl.derive_key(tenant, payload, raw, native_id=native)
+            result = fanout.ingest(
+                store, cfg, tenant=tenant, key=key, basis=basis, source="ghl-direct", payload_json=raw.decode("utf-8")
+            )
+        except Unrouted as exc:
+            alert_routing(tenant, str(exc))
+            return _err(503, "unrouted")
+        except Exception as exc:
+            log.error("direct webhook ingest failed before commit: %s", type(exc).__name__)
             return _err(503, "store")
         return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})
 

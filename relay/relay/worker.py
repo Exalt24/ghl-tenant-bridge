@@ -103,9 +103,17 @@ class Worker:
         Retry-After from holding a one-shot run open for ever."""
         sinks = sorted(self.ctx.registry)
         with ThreadPoolExecutor(max_workers=len(sinks)) as pool:
-            total = sum(pool.map(lambda s: self._drain_sink(s, wait_horizon_s, max_total_wait_s), sinks))
+            total = sum(pool.map(lambda s: self._drain_sink_and_release(s, wait_horizon_s, max_total_wait_s), sinks))
         self._housekeeping()
         return total
+
+    def _drain_sink_and_release(self, sink: str, wait_horizon_s: float, max_total_wait_s: float) -> int:
+        """One pass thread: drain, then close the database connection that thread opened, so repeated passes do not pile up
+        connections (the loop mode keeps its threads, and their connections, for the life of the process)."""
+        try:
+            return self._drain_sink(sink, wait_horizon_s, max_total_wait_s)
+        finally:
+            self.store.release_connection()
 
     def _sink_loop(self, sink: str, interval_s: float) -> None:
         while not self.stop.is_set():

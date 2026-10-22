@@ -33,9 +33,14 @@ DEFAULT_MAX_BODY_BYTES = 256 * 1024
 FATHOM_MAX_BODY_BYTES = 2 * 1024 * 1024  # used by tier 3, kept here so every cap lives in one place
 
 LITERAL_SECRET_KEYS = {"url", "webhook_url", "token", "secret", "apikey", "api_key", "password", "workflow_secret"}
-SINK_KEYS = {"enabled", "url_env", "apikey_env", "timeout_s", "min_interval_s", "pause_s", "max_age_s"}
-TENANT_KEYS = {"workflow_secret_env", "dedupe_window_s", "dedupe_mode", "max_body_bytes", "sinks"}
-TOP_KEYS = {"locations", "tenants", "alert_webhook_env", "max_body_bytes", "dedupe_window_s"}
+SINK_KEYS = {"enabled", "url_env", "apikey_env", "timeout_s", "min_interval_s", "pause_s", "max_age_s", "env", "options"}
+TENANT_KEYS = {"workflow_secret_env", "dedupe_window_s", "dedupe_mode", "max_body_bytes", "sinks", "ghl_timestamp_window"}
+TOP_KEYS = {"locations", "tenants", "alert_webhook_env", "max_body_bytes", "dedupe_window_s", "ghl_webhook_max_body_bytes"}
+# Identifiers and key material that belong in the environment, never in a file under git (a pixel id and a spreadsheet
+# id are account identifiers, a service account carries a private key). Refused by name inside a sink's `options`.
+LITERAL_OPTION_KEYS = LITERAL_SECRET_KEYS | {
+    "access_token", "private_key", "service_account", "pixel_id", "spreadsheet_id", "client_email", "account_id",
+}
 ROLES = ("web", "worker", "worker_once")
 
 
@@ -53,6 +58,10 @@ class SinkCfg:
     min_interval_s: float
     pause_s: float
     max_age_s: float
+    # The literal options plus the values of the environment variables the sink's `env` map named, as the sink reads
+    # them from its context. `secrets` is every value among them that must never reach a log line or a database column.
+    extra: dict[str, Any] = field(default_factory=dict)
+    secrets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -63,6 +72,9 @@ class TenantCfg:
     dedupe_mode: str  # "event_key" (default) or "body_hash"
     max_body_bytes: int
     sinks: dict[str, SinkCfg] = field(default_factory=dict)
+    # ASSUMED rule, off by default: refuse a direct HighLevel delivery whose `timestamp` is older than 30 days or more
+    # than 5 minutes ahead. HighLevel retries up to 12 times and what `timestamp` means on a retry is undocumented.
+    ghl_timestamp_window: bool = False
 
     def enabled_sinks(self) -> list[str]:
         return sorted(n for n, s in self.sinks.items() if s.enabled)
@@ -85,6 +97,7 @@ class Config:
     max_body_bytes: int
     locations: dict[str, str]
     tenants: dict[str, TenantCfg]
+    ghl_webhook_max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
 
     def tenant_for_location(self, location_id: Any) -> str | None:
         return self.locations.get(location_id) if isinstance(location_id, str) else None
@@ -94,7 +107,7 @@ class Config:
         for t in self.tenants.values():
             vals.append(t.workflow_secret)
             for s in t.sinks.values():
-                vals.extend([s.url, s.apikey])
+                vals.extend([s.url, s.apikey, *s.secrets])
         return [v for v in vals if v]
 
 
@@ -133,6 +146,13 @@ def _positive(d: dict[str, Any], key: str, default: float, where: str) -> float:
     if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
         raise ConfigError(f"{where}: `{key}` must be a positive number")
     return float(v)
+
+
+def _flag(d: dict[str, Any], key: str, where: str) -> bool:
+    v = d.get(key, False)
+    if not isinstance(v, bool):
+        raise ConfigError(f"{where}: `{key}` must be true or false")
+    return v
 
 
 def _parse_json(source: str) -> dict[str, Any]:
@@ -185,6 +205,7 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
 
     default_window = _positive(raw, "dedupe_window_s", DEFAULT_DEDUPE_WINDOW_S, "config")
     default_cap = int(_positive(raw, "max_body_bytes", DEFAULT_MAX_BODY_BYTES, "config"))
+    ghl_cap = int(_positive(raw, "ghl_webhook_max_body_bytes", DEFAULT_MAX_BODY_BYTES, "config"))
 
     tenants: dict[str, TenantCfg] = {}
     for tname, t in (raw.get("tenants") or {}).items():
@@ -214,7 +235,28 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
                 raise ConfigError(f"{where}: enabled must be true or false")
             url = _env_value(env, s.get("url_env"), f"{where} url_env")
             check_base_url(url, live, f"{where} url")
+            cls = registry.SINK_CLASSES[sname]
+            if cls.needs_apikey and "apikey_env" not in s:
+                raise ConfigError(f"{where}: apikey_env is required (it names the variable holding the access token)")
             apikey = _env_value(env, s["apikey_env"], f"{where} apikey_env") if "apikey_env" in s else None
+            env_map = s.get("env", {})
+            if not isinstance(env_map, dict) or any(k not in cls.required_env for k in env_map):
+                raise ConfigError(f"{where}: `env` may only name {', '.join(cls.required_env) or 'nothing'}")
+            env_values: dict[str, str] = {}
+            for need in cls.required_env:
+                if need not in env_map:
+                    raise ConfigError(f"{where}: env.{need} is required and names an environment variable")
+                env_values[need] = _env_value(env, env_map[need], f"{where} env.{need}")
+            options = s.get("options", {})
+            if not isinstance(options, dict):
+                raise ConfigError(f"{where}: options must be an object")
+            for k in options:
+                if k in LITERAL_OPTION_KEYS:
+                    raise ConfigError(f"{where}: option `{k}` would hold an identifier or a secret in the file; use `env`")
+            try:
+                checked = cls.check_options(options, env_values, live)
+            except ValueError as exc:
+                raise ConfigError(f"{where}: {exc}") from None
             d = registry.defaults(sname)
             sinks[sname] = SinkCfg(
                 name=sname,
@@ -225,6 +267,8 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
                 min_interval_s=_positive(s, "min_interval_s", d["min_interval_s"], where),
                 pause_s=_positive(s, "pause_s", d["pause_s"], where),
                 max_age_s=_positive(s, "max_age_s", d["max_age_s"], where),
+                extra={**checked, **env_values},
+                secrets=cls.secret_values(env_values),
             )
         tenants[tname] = TenantCfg(
             name=tname,
@@ -233,6 +277,7 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
             dedupe_mode=mode,
             max_body_bytes=int(_positive(t, "max_body_bytes", default_cap, f"tenant {tname}")),
             sinks=sinks,
+            ghl_timestamp_window=_flag(t, "ghl_timestamp_window", f"tenant {tname}"),
         )
 
     locations = raw.get("locations") or {}
@@ -281,6 +326,7 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
         max_body_bytes=default_cap,
         locations=dict(locations),
         tenants=tenants,
+        ghl_webhook_max_body_bytes=ghl_cap,
     )
     redact.register(*cfg.secret_values())
     return cfg

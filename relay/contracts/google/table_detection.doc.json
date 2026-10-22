@@ -1,0 +1,7 @@
+{
+  "source": "the worked example on the Sheets API values guide: Sheet1 holds two tables, A1:C2 and B4:D6",
+  "tables": ["A1:C2", "B4:D6"],
+  "appends_begin_at_B7_for_these_ranges": ["Sheet1", "B4", "C5:D5", "B2:D4", "A3:G10"],
+  "other_ranges": {"A1": "A3", "E4": "E4"},
+  "why_it_matters": "values append at the first column of the table, which is not always column A, so the relay reads tableRange from the answer and refuses a table that does not start at column A"
+}

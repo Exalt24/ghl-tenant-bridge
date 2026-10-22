@@ -1,0 +1,5 @@
+{
+  "provenance": "ASSUMED",
+  "note": "No saved Meta page shows the body of a successful events call. The documented signal is a 2xx status, so the relay treats ANY 2xx as DONE and reads nothing from the body. The fake returns this plausible shape.",
+  "plausible_body": {"events_received": 1, "messages": [], "fbtrace_id": "FAKETRACE"}
+}

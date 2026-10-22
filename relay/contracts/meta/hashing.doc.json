@@ -1,0 +1,17 @@
+{
+  "note": "Every input, normalised form and digest below is printed on Meta's customer-information-parameters page. Where the page prints a normalised example but no digest, sha256 is null and the test computes the digest from the normalised text.",
+  "never_hash": ["client_ip_address", "client_user_agent", "fbc", "fbp"],
+  "vectors": [
+    {"field": "em", "input": "John_Smith@gmail.com", "normalised": "john_smith@gmail.com", "sha256": "62a14e44f765419d10fea99367361a727c12365e2520f32218d505ed9aa0f62f"},
+    {"field": "ph", "input": "(650)555-1212", "normalised": "16505551212", "sha256": "e323ec626319ca94ee8bff2e4c87cf613be6ea19919ed1364124e16807ab3176", "relay_input": "+1 (650) 555-1212", "note": "the page's input has no country code and its normalised form has the 1; the relay needs the code in the input (a plus) or a configured default"},
+    {"field": "fn", "input": "Mary", "normalised": "mary", "sha256": "6915771be1c5aa0c886870b6951b03d7eafc121fea0e80a5ea83beb7c449f4ec"},
+    {"field": "fn", "input": "정", "normalised": "정", "sha256": "8fa8cd9c440be61d0151429310034083132b35975c4bea67fdd74158eb51db14"},
+    {"field": "fn", "input": "Valéry", "normalised": "valéry", "sha256": "08e1996b5dd49e62a4b4c010d44e4345592a863bb9f8e3976219bac29417149c"},
+    {"field": "country", "input": "United States", "normalised": "us", "sha256": "79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621"},
+    {"field": "ct", "input": "New York", "normalised": "newyork", "sha256": null},
+    {"field": "ct", "input": "Paris", "normalised": "paris", "sha256": null},
+    {"field": "st", "input": "AZ", "normalised": "az", "sha256": null},
+    {"field": "zp", "input": "94035", "normalised": "94035", "sha256": null},
+    {"field": "zp", "input": "M1 1AE", "normalised": "m11ae", "sha256": null, "country": "GB"}
+  ]
+}

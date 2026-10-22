@@ -1,0 +1,14 @@
+{
+  "note": "ContactCreate and ContactUpdate carry no attribution. Attribution is on Get Contact as attributionSource and lastAttributionSource, which this shape lists. The relay reads this nested object first, then flat workflow body keys, and records missing attribution as missing.",
+  "get_contact_attribution_source_keys": ["url", "campaign", "utmSource", "utmMedium", "utmContent", "referrer", "campaignId", "fbclid", "gclid", "msclikid", "dclid", "fbc", "fbp", "fbEventId", "userAgent", "ip", "medium", "mediumId"],
+  "nested_example": {
+    "attributionSource": {"url": "https://shop.example.com/lp?utm_source=facebook", "campaign": "spring", "utmSource": "facebook", "utmMedium": "cpc", "fbclid": "IwAR2Ab_c-D", "userAgent": "Mozilla/5.0 (X11; Linux x86_64)", "ip": "203.0.113.7", "fbEventId": "evt-1"}
+  },
+  "flat_workflow_keys": ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "fbclid", "fbc", "fbp", "event_id", "ip", "user_agent", "page_url"],
+  "workflow_custom_webhook": {
+    "signature": "no signature is documented for the Custom Webhook action",
+    "headers": "author defined (Bearer, Basic, API key or a custom header), so the relay's shared secret header is a custom header",
+    "body": "author defined with merge fields such as {{contact.id}}",
+    "retry": "Failed (and then skipped) or Retry with exponential backoffs, with no count stated"
+  }
+}

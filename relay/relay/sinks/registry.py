@@ -4,12 +4,16 @@ at least one mutant."""
 from __future__ import annotations
 
 from .base import Sink
+from .capi import CapiSink
 from .make import MakeSink
+from .sheets import SheetsSink
 from .slack import SlackSink
 
 SINK_CLASSES: dict[str, type[Sink]] = {
     "slack": SlackSink,
     "make": MakeSink,
+    "capi": CapiSink,
+    "sheets": SheetsSink,
 }
 
 

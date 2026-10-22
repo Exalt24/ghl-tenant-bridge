@@ -1,0 +1,6 @@
+{
+  "provenance": "ASSUMED except where a status is named in a saved page",
+  "documented": {"429": "per minute quota exceeded, back off min(2^n + jitter up to 1 second, 32 seconds)", "400": "listed on the troubleshooting page", "500": "listed on the troubleshooting page", "503": "listed on the troubleshooting page"},
+  "assumed": {"401": "invalid or expired credentials: refresh the token once, then dead", "403": "the sheet is not shared with the service account: pause the sink", "404": "no such spreadsheet: dead"},
+  "what_would_settle_it": "one real call against a sheet that is not shared, and one against a missing id"
+}

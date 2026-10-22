@@ -102,7 +102,7 @@ def plan_for(outcome: Outcome, claim: Claim, scfg: SinkCfg | None, rng: random.R
     reason = (outcome.reason or "")[:MAX_REASON_CHARS] or None
     plan = FinishPlan(
         state="pending", status=outcome.status, error=reason, effect_ref=outcome.effect_ref,
-        note=reason, min_interval_s=min_interval,
+        note=reason, min_interval_s=min_interval, maybe_acted=outcome.maybe_acted,
         breaker_threshold=BREAKER_THRESHOLD, breaker_open_s=BREAKER_OPEN_S,
     )
     if kind == DONE:
@@ -190,10 +190,13 @@ def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row
         source=event_row["source"],
         payload=payload if isinstance(payload, dict) else {},
         lead=ghl.normalise_lead(payload),
+        received_epoch=event_row.get("received_epoch"),
     )
     sctx = SinkContext(
         tenant=claim.tenant, url=scfg.url, timeout_s=scfg.timeout_s, apikey=scfg.apikey,
-        attempts=claim.attempts, retries=claim.retries,
+        attempts=claim.attempts, retries=claim.retries, extra=dict(scfg.extra),
+        maybe_acted_before=claim.maybe_acted_before, since_maybe_acted_s=claim.since_maybe_acted_s,
+        prior_claim_lost=claim.prior_claim_lost, lock=ctx.store.append_lock,
     )
     try:
         outcome = sink.send(event, ctx.http, sctx)
@@ -211,7 +214,10 @@ def _resolve(sink: Sink, event: Event, http: Any, sctx: SinkContext, outcome: Ou
     if found == "found":
         return Outcome.done(status=outcome.status, effect_ref="reconciled")
     if found == "absent":
-        return Outcome.retry(status=outcome.status, reason="reconciled absent", breaker_failure=True)
+        # Nothing there yet, but a vendor can land a request late, so the next try must look again before it sends.
+        absent = Outcome.retry(status=outcome.status, reason="reconciled absent", breaker_failure=True)
+        absent.maybe_acted = True
+        return absent
     return outcome
 
 

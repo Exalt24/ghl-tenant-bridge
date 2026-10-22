@@ -1,0 +1,8 @@
+{
+  "provenance": "doc: RFC 7523 (the HTTP tab of Google's own service account page was not retrieved)",
+  "method": "POST",
+  "content_type": "application/x-www-form-urlencoded",
+  "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+  "form_fields": ["grant_type", "assertion"],
+  "rfc_example": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer"
+}

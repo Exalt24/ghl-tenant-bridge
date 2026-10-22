@@ -19,7 +19,9 @@ CREATE INDEX IF NOT EXISTS events_received ON events (received_at);
 
 -- One row per (event, sink). The sink set is frozen when the event is ingested. State stays 'pending' while a worker
 -- holds the row: claim_until is the lease, claim_token proves who holds it, and the final write is conditional on it.
--- attempts counts tries that were not a plain RETRY, retries counts the RETRY tries (they spend no budget).
+-- attempts counts tries that were not a plain RETRY, retries counts the RETRY tries (they spend no budget). claims counts
+-- every claim, so a claim with no final write (a dead worker) shows as claims > attempts + retries. maybe_acted_at is the
+-- time of the last try that MAY have reached the vendor (an ambiguous send, a read-back that found nothing).
 CREATE TABLE IF NOT EXISTS deliveries (
   event_id     TEXT NOT NULL REFERENCES events (event_id),
   sink         TEXT NOT NULL,
@@ -35,6 +37,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
   last_error   TEXT,
   effect_ref   TEXT,
   finished_at  TEXT,
+  claims       INTEGER NOT NULL DEFAULT 0,
+  maybe_acted_at TEXT,
   PRIMARY KEY (event_id, sink)
 );
 CREATE INDEX IF NOT EXISTS deliveries_due ON deliveries (sink, state, next_at);
@@ -72,6 +76,14 @@ CREATE TABLE IF NOT EXISTS sink_state (
   breaker_until        TEXT,
   next_send_at         TEXT,
   PRIMARY KEY (tenant, sink)
+);
+
+-- One append in flight per spreadsheet across processes. Postgres uses an advisory lock instead and has no such table.
+-- A holder that dies leaves a row that simply expires: `until` is on the database clock.
+CREATE TABLE IF NOT EXISTS append_locks (
+  lock_key TEXT PRIMARY KEY,
+  holder   TEXT NOT NULL,
+  until    TEXT NOT NULL
 );
 
 -- Alerts wait here until the digest for their sink is due (one post per sink per 15 minutes).

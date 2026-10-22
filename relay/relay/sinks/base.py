@@ -33,6 +33,9 @@ class Outcome:
     after_s: float | None = None  # how long to wait before the next try; None means the default backoff
     effect_ref: str | None = None
     pause_s: float | None = None
+    # True when the vendor MAY have acted on this try (an ambiguous send, or a read-back that found nothing yet because
+    # the vendor can land a request late). A sink that can read back uses the stored mark to look before it sends again.
+    maybe_acted: bool = False
     # A vendor wide rate limit: the whole channel waits, not only this row.
     rate_limited: bool = False
     # Counts toward the circuit breaker (server errors, timeouts, refused connections). A 429 does not.
@@ -56,7 +59,7 @@ class Outcome:
 
     @staticmethod
     def ambiguous(status: int | None = None, reason: str | None = None) -> "Outcome":
-        return Outcome(AMBIGUOUS, status=status, reason=reason, breaker_failure=True)
+        return Outcome(AMBIGUOUS, status=status, reason=reason, breaker_failure=True, maybe_acted=True)
 
     @staticmethod
     def dead(reason: str, status: int | None = None) -> "Outcome":
@@ -78,6 +81,8 @@ class Event:
     source: str
     payload: dict[str, Any]
     lead: dict[str, Any]
+    # When the relay stored the event, seconds since the Unix epoch. The fallback for an event time and an fbc time.
+    received_epoch: float | None = None
 
 
 @dataclass
@@ -90,7 +95,15 @@ class SinkContext:
     apikey: str | None = None
     attempts: int = 0
     retries: int = 0
+    # Per sink settings from the config: literal options plus the values of the environment variables it named.
     extra: dict[str, Any] = field(default_factory=dict)
+    # A try before this one may have acted (an ambiguous send, a read-back that found nothing), and how long ago.
+    maybe_acted_before: bool = False
+    since_maybe_acted_s: float | None = None
+    # An earlier claim on this row ended without a final write (the worker died): that try may have acted too.
+    prior_claim_lost: bool = False
+    # One append in flight per key across processes: `with ctx.lock(key, ttl_s) as got:`. None in unit tests of a sink.
+    lock: Any = None
 
 
 class HttpLike(Protocol):
@@ -107,6 +120,22 @@ class Sink:
     default_max_age_s = 72 * 3600.0
     # True when reconcile can really look the effect up (a read-back). Slack and Make have no read path.
     can_reconcile = False
+    # What the config must supply for this sink: names under the sink's `env` map, whether `apikey_env` is required.
+    required_env: tuple[str, ...] = ()
+    needs_apikey = False
+
+    @classmethod
+    def check_options(cls, options: dict[str, Any], env_values: dict[str, str], live: bool) -> dict[str, Any]:
+        """Validate the literal `options` of this sink and return them with defaults filled in. Raise ValueError with a
+        readable reason that never contains a secret. The base sink takes none."""
+        if options:
+            raise ValueError("this sink takes no options")
+        return {}
+
+    @classmethod
+    def secret_values(cls, env_values: dict[str, str]) -> list[str]:
+        """Every value that must be masked in logs. By default every environment value the sink was given."""
+        return list(env_values.values())
 
     def send(self, event: Event, http: HttpLike, ctx: SinkContext) -> Outcome:  # pragma: no cover - interface
         raise NotImplementedError

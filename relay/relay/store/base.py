@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterator
 
 CLAIMABLE_STATES = ("pending",)
 ALERT_CAP_PER_SINK = 200
@@ -33,6 +34,12 @@ class Claim:
     retries: int
     token: str
     age_s: float
+    # Set when a try before this one may have reached the vendor: an ambiguous send, or a read-back that found nothing
+    # yet. `since_maybe_acted_s` is how long ago, on the database clock.
+    maybe_acted_before: bool = False
+    since_maybe_acted_s: float | None = None
+    # An earlier claim ended with no final write (the worker died): that try may have reached the vendor too.
+    prior_claim_lost: bool = False
 
 
 @dataclass
@@ -52,10 +59,19 @@ class FinishPlan:
     rate_limit_s: float | None = None
     pause_s: float | None = None
     pause_reason: str | None = None
+    maybe_acted: bool = False
     breaker: str | None = None  # 'ok' | 'fail' | None
     breaker_threshold: int = 5
     breaker_open_s: float = 60.0
     alerts: list[tuple[str, str]] = field(default_factory=list)  # (kind, reason)
+
+
+def to_epoch(value: Any) -> float:
+    """Seconds since the Unix epoch from what a store hands back: a datetime (Postgres) or the UTC text SQLite keeps."""
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=timezone.utc).timestamp()
 
 
 class SqlStore:
@@ -114,6 +130,21 @@ class SqlStore:
     def _later(self, col: str, expr: str) -> str:
         """SQL that keeps the later of a column and an expression, NULL counts as earliest."""
         return f"CASE WHEN {col} IS NULL OR {col} < {expr} THEN {expr} ELSE {col} END"
+
+    def release_connection(self) -> None:
+        """Close the connection the CALLING thread opened. A pool that starts fresh threads on every pass would otherwise
+        leave one open connection per thread per pass behind, and Postgres refuses clients past max_connections."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            return
+        self._local.conn = None
+        with self._conns_lock:
+            if conn in self._conns:
+                self._conns.remove(conn)
+        try:
+            conn.close()
+        except Exception:
+            pass
 
     def ping(self) -> bool:
         with self.tx(write=False) as t:
@@ -198,13 +229,13 @@ class SqlStore:
         with self.tx() as t:
             row = self._one(
                 t,
-                f"UPDATE deliveries SET claim_until = {self.now(lease_s)}, claim_token = ? "
+                f"UPDATE deliveries SET claim_until = {self.now(lease_s)}, claim_token = ?, claims = claims + 1 "
                 f"WHERE (event_id, sink) IN ("
                 f"SELECT d.event_id, d.sink FROM deliveries d WHERE d.sink = ? AND {self._claimable('d')} "
                 f"ORDER BY d.next_at, d.created_at, d.event_id LIMIT 1 {self.skip_locked}) "
                 f"AND {self._claimable('deliveries')} "
-                f"RETURNING event_id, sink, tenant, attempts, retries, claim_token, "
-                f"{self.age_s('created_at')} AS age_s",
+                f"RETURNING event_id, sink, tenant, attempts, retries, claim_token, claims, maybe_acted_at, "
+                f"{self.age_s('created_at')} AS age_s, {self.age_s('maybe_acted_at')} AS since_maybe_acted_s",
                 (token, sink),
             )
         if row is None:
@@ -217,6 +248,11 @@ class SqlStore:
             retries=int(row["retries"]),
             token=row["claim_token"],
             age_s=float(row["age_s"]),
+            maybe_acted_before=row["maybe_acted_at"] is not None,
+            since_maybe_acted_s=None if row["since_maybe_acted_s"] is None else float(row["since_maybe_acted_s"]),
+            # Every finished try adds exactly one to attempts or retries, so more earlier claims than that means one
+            # of them never reached its final write.
+            prior_claim_lost=int(row["claims"]) - 1 > int(row["attempts"]) + int(row["retries"]),
         )
 
     # ---- final write ---------------------------------------------------------------------------------------------
@@ -229,17 +265,24 @@ class SqlStore:
         with self.tx() as t:
             cur = t.execute(
                 f"UPDATE deliveries SET state = ?, attempts = attempts + ?, retries = retries + ?, "
+                f"claims = attempts + ? + retries + ?, "
                 f"next_at = {self.now(plan.delay_s)}, claim_until = NULL, claim_token = NULL, "
                 f"last_status = ?, last_error = ?, effect_ref = COALESCE(?, effect_ref), "
+                f"maybe_acted_at = CASE WHEN ? = 1 THEN {self.now()} ELSE maybe_acted_at END, "
                 f"finished_at = CASE WHEN ? = 'pending' THEN NULL ELSE {self.now()} END "
                 f"WHERE event_id = ? AND sink = ? AND claim_token = ? AND state = 'pending'",
                 (
                     plan.state,
                     plan.attempts_inc,
                     plan.retries_inc,
+                    # A finished try brings `claims` back in line with the tries counted, so a lost claim is remembered
+                    # by the maybe_acted mark below (set when this claim found one) and not by a permanent offset.
+                    plan.attempts_inc,
+                    plan.retries_inc,
                     plan.status,
                     plan.error,
                     plan.effect_ref,
+                    1 if (plan.maybe_acted or claim.prior_claim_lost) else 0,
                     plan.state,
                     claim.event_id,
                     claim.sink,
@@ -325,7 +368,8 @@ class SqlStore:
         states = ("dead", "done", "skipped") if force else ("dead",)
         marks = ", ".join("?" for _ in states)
         sql = (
-            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, created_at = {self.now()}, "
+            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, claims = 0, maybe_acted_at = NULL, "
+            f"created_at = {self.now()}, "
             f"next_at = {self.now()}, claim_until = NULL, claim_token = NULL, last_status = NULL, last_error = NULL, "
             f"finished_at = NULL WHERE event_id = ? AND state IN ({marks})"
         )
@@ -353,6 +397,33 @@ class SqlStore:
             return t.execute(
                 f"UPDATE events SET payload = NULL WHERE payload IS NOT NULL AND received_at <= {self.now(-older_than_days * 86400.0)}"
             ).rowcount
+
+    # ---- one append in flight per key ----------------------------------------------------------------------------
+    @contextmanager
+    def append_lock(self, key: str, ttl_s: float) -> Iterator[bool]:
+        """`with store.append_lock(key, ttl) as got:` yields True when this caller holds the lock and False when another
+        holder has it. A lock row (SQLite) expires on the database clock, so a holder that died frees it after ttl_s."""
+        holder = uuid.uuid4().hex
+        got = self._lock_try(key, holder, ttl_s)
+        try:
+            yield got
+        finally:
+            if got:
+                self._lock_release(key, holder)
+
+    def _lock_try(self, key: str, holder: str, ttl_s: float) -> bool:
+        with self.tx() as t:
+            cur = t.execute(
+                f"INSERT INTO append_locks (lock_key, holder, until) VALUES (?, ?, {self.now(ttl_s)}) "
+                f"ON CONFLICT (lock_key) DO UPDATE SET holder = excluded.holder, until = excluded.until "
+                f"WHERE append_locks.until <= {self.now()}",
+                (key, holder),
+            )
+            return cur.rowcount == 1
+
+    def _lock_release(self, key: str, holder: str) -> None:
+        with self.tx() as t:
+            t.execute("DELETE FROM append_locks WHERE lock_key = ? AND holder = ?", (key, holder))
 
     # ---- alerts --------------------------------------------------------------------------------------------------
     def _insert_alert(self, t: Any, sink: str, tenant: str | None, kind: str, reason: str, event_id: str | None) -> None:
@@ -409,9 +480,14 @@ class SqlStore:
     # ---- reads ---------------------------------------------------------------------------------------------------
     def get_event(self, event_id: str) -> dict[str, Any] | None:
         with self.tx(write=False) as t:
-            return self._one(
-                t, "SELECT event_id, tenant, source, dedupe_basis, payload FROM events WHERE event_id = ?", (event_id,)
+            row = self._one(
+                t,
+                "SELECT event_id, tenant, source, dedupe_basis, payload, received_at FROM events WHERE event_id = ?",
+                (event_id,),
             )
+        if row is not None:
+            row["received_epoch"] = to_epoch(row["received_at"])
+        return row
 
     def delivery(self, event_id: str, sink: str) -> dict[str, Any] | None:
         with self.tx(write=False) as t:

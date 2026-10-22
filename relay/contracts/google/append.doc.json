@@ -1,0 +1,13 @@
+{
+  "request": "POST https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}/values/{range}:append",
+  "required_query": ["valueInputOption"],
+  "value_input_option": {"RAW": "The input isn't parsed and is inserted as a string. For example, the input \"=1+2\" places the string, not the formula, \"=1+2\" in the cell."},
+  "insert_data_option": {"INSERT_ROWS": "Rows are inserted for the new data.", "OVERWRITE": "The new data overwrites existing data in the areas it is written."},
+  "range": "The A1 notation of a range to search for a logical table of data. Values are appended after the last row of the table, starting with the first column of the table.",
+  "response_fields": {"spreadsheetId": "string", "tableRange": "The range (in A1 notation) of the table that values are being appended to (before the values were appended). Empty if no table was found.", "updates": "UpdateValuesResponse"},
+  "scope": "https://www.googleapis.com/auth/spreadsheets",
+  "quotas_per_minute": {"project": 300, "user_per_project": 60},
+  "recommended_max_payload_mb": 2,
+  "read_response": "GET .../values/{range} answers {range, majorDimension, values}, values omitted when the range is empty",
+  "cell_character_limit": 50000
+}

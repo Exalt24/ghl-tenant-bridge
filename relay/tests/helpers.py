@@ -45,19 +45,21 @@ def env_for(slack_url: str | None, make_url: str | None, **extra: str) -> dict[s
 
 def config_json(
     *, slack: bool = True, make: bool = True, slack_timeout: float = 5.0, make_timeout: float = 5.0, tenant_extra: dict | None = None,
-    slack_extra: dict | None = None, make_extra: dict | None = None, second_tenant: bool = False,
+    slack_extra: dict | None = None, make_extra: dict | None = None, second_tenant: bool = False, extra_sinks: dict | None = None,
+    top_extra: dict | None = None,
 ) -> str:
     sinks: dict[str, Any] = {}
     if slack:
         sinks["slack"] = {"url_env": "ACME_SLACK_URL", "timeout_s": slack_timeout, **(slack_extra or {})}
     if make:
         sinks["make"] = {"url_env": "ACME_MAKE_URL", "timeout_s": make_timeout, **(make_extra or {})}
+    sinks.update(extra_sinks or {})
     tenants: dict[str, Any] = {TENANT: {"workflow_secret_env": "ACME_WORKFLOW_SECRET", "sinks": sinks, **(tenant_extra or {})}}
-    return json.dumps({"locations": {LOCATION: TENANT}, "tenants": tenants})
+    return json.dumps({"locations": {LOCATION: TENANT}, "tenants": tenants, **(top_extra or {})})
 
 
-def make_cfg(slack_url: str | None = None, make_url: str | None = None, role: str = "web", **kw: Any) -> Config:
-    env = env_for(slack_url, make_url)
+def make_cfg(slack_url: str | None = None, make_url: str | None = None, role: str = "web", env_extra: dict | None = None, **kw: Any) -> Config:
+    env = env_for(slack_url, make_url, **(env_extra or {}))
     env["RELAY_CONFIG"] = config_json(slack=slack_url is not None, make=make_url is not None, **kw)
     return load_config(env, role=role)
 
