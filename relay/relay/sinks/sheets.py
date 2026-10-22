@@ -13,6 +13,11 @@ Three things make a duplicate row rare, and the rest is stated in the README as 
 Where a status code's meaning rests on the generic Google error format and not on a saved page it is marked ASSUMED: the
 troubleshooting page lists only 400, 500 and 503, so 401, 403 and 404 below are ASSUMED. The 429 backoff formula is not.
 Concurrent appends to one sheet: not found, the concurrent-edits page was not retrieved.
+
+The append names column A as its range (`Sheet1!A:A`), not the bare sheet. The page says the range is searched for a logical
+table and the row goes after that table's last row at its first column. Column A always holds the event id, so it is never
+empty, and the table found there is the relay's own: a column that is empty in every row further right (a lead that never
+carries utm_campaign) can no longer split the table and send the next row to another column.
 """
 
 from __future__ import annotations
@@ -352,7 +357,7 @@ class SheetsSink(Sink):
     def _append(self, event: Event, http: HttpLike, ctx: SinkContext) -> Outcome:
         ex = ctx.extra
         row = self.row_for(event, ex["columns"])
-        url = self._values_url(ctx, ex["sheet"], ":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS")
+        url = self._values_url(ctx, f"{ex['sheet']}!A:A", ":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS")
         body = json.dumps({"values": [row]}, ensure_ascii=False).encode("utf-8")
         try:
             res = self._call(http, ctx, "POST", url, body)

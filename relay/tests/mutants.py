@@ -116,6 +116,7 @@ T_STORE3 = ["tests/test_store_tier3.py"]
 T_CONTRACTS3 = ["tests/test_contracts_tier3.py"]
 T_CORPUS = ["tests/test_output_corpus.py"]
 T_CLASS_F3 = ["tests/test_class_tables.py::test_class_f3_a_backfill_gives_each_sink_only_the_sources_it_accepts"]
+T_CLASS_F7 = ["tests/test_class_tables.py::test_class_f7_a_column_that_is_empty_in_every_row_never_splits_the_sheets_table"]
 
 MUTANTS: list[Mutant] = [
     # ---- ingest and the store ----------------------------------------------------------------------------------------
@@ -787,6 +788,8 @@ MUTANTS: list[Mutant] = [
     M("F3 the backfill route lets Slack take meetings whatever the tenant chose", APP, ("with_meetings=sink in tcfg.meeting_sinks()", 'with_meetings=sink == "slack"'), tests=T_CLASS_F3),
     M("F3 a tenant that did not opt in still has meeting sinks", CFG, ("self.fathom is not None and self.fathom.slack", "self.fathom is not None"), tests=T_FROUTE + T_CLASS_F3),
     M("F3 a tenant that opted in has no meeting sink", CFG, ('return ["slack"] if self.fathom is not None and self.fathom.slack else []', "return []"), tests=T_FROUTE + T_CLASS_F3),
+    M("F7 the Sheets append searches the whole sheet and not column A", SHT, ("f\"{ex['sheet']}!A:A\"", 'ex["sheet"]'), tests=T_SHEETS + T_CLASS_F7),
+    M("F7 the Sheets append searches column B and not column A", SHT, ("f\"{ex['sheet']}!A:A\"", "f\"{ex['sheet']}!B:B\""), tests=T_CLASS_F7),
     M("container smoke: the lead has no tenant to route to", TSMOKE, ('"type": "ContactCreate", "locationId": LOCATION,', '"type": "ContactCreate", "locationId": "NOWHERE",'), tests=T_TOOLS),
 ]
 

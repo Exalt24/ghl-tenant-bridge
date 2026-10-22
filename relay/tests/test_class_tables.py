@@ -1,9 +1,10 @@
-"""Generated tables for the two classes of the first output pass that were fixed (the third, a replay that appends a Sheets
+"""Generated tables for the classes of the first output pass that were fixed (a replay that appends a Sheets
 row again, is a KNOWN_LIMIT pinned in test_output_corpus.py). Each table crosses every input route,
 every omitted field, every sink and every recovery action it could meet, so a neighbour of the reproduced case cannot hide.
 
 CLASS-TABLE: F1 an input a documented route may omit must never be skipped with an outcome the operator cannot see
 CLASS-TABLE: F3 a bulk path must honour which source each sink accepts
+CLASS-TABLE: F7 a row layout with an empty cell inside the row must never split the Sheets table
 """
 
 from __future__ import annotations
@@ -14,15 +15,18 @@ import time
 
 import pytest
 
+from relay import ghl
 from relay.app import Deps, create_app
 from relay.config import load_config
 from relay.sinks.capi import CapiSink
+from relay.sinks.base import Event
+from relay.sinks.sheets import SheetsSink
 from relay.sinks.slack import SlackSink
 
 from .fakes.fathom import WEBHOOK_SECRET
 from .fakes.meta_graph import PIXEL_ID, TOKEN
 from .fakes.sheets import SPREADSHEET_ID, service_account_json
-from .helpers import ADMIN_TOKEN, INGEST_TOKEN, LOCATION, TENANT, WORKFLOW_SECRET, config_json, env_for, make_cfg, make_rig, payload
+from .helpers import ADMIN_TOKEN, INGEST_TOKEN, LOCATION, TENANT, WORKFLOW_SECRET, config_json, env_for, ingest_one, make_cfg, make_rig, payload
 from .test_ghl_route import keypair, sign
 
 # ---- F1: the documented workflow body, every route, every omitted field, every sink combination -----------------------------------
@@ -139,3 +143,42 @@ def test_class_f3_a_backfill_gives_each_sink_only_the_sources_it_accepts(store, 
         if source != "fathom" or (sink == "slack" and fathom_slack)  # a meeting reaches Slack only, and only when the tenant opted in
     }
     assert got == expected
+
+
+# ---- F7: a row layout with an empty cell inside the row must never split the Sheets table --------------------------------------------
+
+F7_OPTIONAL = ("email", "phone", "city", "state", "source", "tags", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "fbclid", "gclid")
+F7_LAYOUTS = {
+    "default": None,  # the shipped default columns
+    "optional-in-the-middle": ["event_id", "name", "utm_term", "fbclid", "gclid", "email"],
+    "optional-first-then-gaps": ["event_id", "tags", "utm_content", "utm_campaign", "utm_source", "phone", "city"],
+}
+F7_LEADS = 3
+
+
+@pytest.mark.parametrize("layout,omitted", list(itertools.product(F7_LAYOUTS, F7_OPTIONAL)))
+def test_class_f7_a_column_that_is_empty_in_every_row_never_splits_the_sheets_table(store, sheets, sa_json, layout, omitted):
+    # CLASS-TABLE: F7 row layouts (default and custom) x every optional field left out of every lead
+    options = {"sheet": "Sheet1", **({"columns": F7_LAYOUTS[layout]} if F7_LAYOUTS[layout] else {})}
+    sink_cfg = {"url_env": "ACME_SHEETS_URL", "env": {"spreadsheet_id": "ACME_SHEET_ID", "service_account": "ACME_SA_JSON"}, "options": options, "timeout_s": 5.0}
+    cfg = make_cfg(None, None, extra_sinks={"sheets": sink_cfg}, env_extra={"ACME_SHEETS_URL": sheets.url, "ACME_SHEET_ID": SPREADSHEET_ID, "ACME_SA_JSON": sa_json})
+    rig = make_rig(store, cfg, registry={"sheets": SheetsSink()})
+    fields = {"fbclid": "IwAR2Ab_c-D", "gclid": "Cj0KCQ", "utm_source": "facebook", "utm_medium": "cpc", "utm_campaign": "spring", "utm_content": "ad1", "utm_term": "roof"}
+    ids = []
+    for i in range(1, F7_LEADS + 1):
+        lead = {**fields, omitted: None}  # the omitted field is missing from EVERY lead, so its column is empty in every row
+        ids.append(ingest_one(store, cfg, payload(i, **lead)).event_id)
+    rig.settle()
+    assert [d["state"] for d in store.deliveries()] == ["done"] * F7_LEADS, (layout, omitted)
+    assert alert_rows(store) == []  # no dead row, no pause
+    columns = cfg.tenants[TENANT].sinks["sheets"].extra["columns"]
+    assert len(sheets.column_values(1)) == F7_LEADS and set(sheets.column_values(1)) == set(ids)  # one row per lead, all in column A
+    assert max(col for (_row, col) in sheets.cells) <= len(columns)  # nothing past the last configured column
+    for row in range(1, F7_LEADS + 1):
+        stored = store.get_event(sheets.cells[(row, 1)])
+        lead = ghl.normalise_lead(json.loads(stored["payload"]))
+        event = Event(event_id=stored["event_id"], tenant=TENANT, source=stored["source"], payload={}, lead=lead, received_epoch=stored["received_epoch"])
+        expected = SheetsSink.row_for(event, columns)
+        while expected and expected[-1] == "":
+            expected.pop()
+        assert sheets.row_values(row) == expected, (layout, omitted, row)  # every value in its own column

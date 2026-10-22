@@ -14,7 +14,7 @@ Provenance tags: `doc` means copied or derived from a vendor page. `ASSUMED` mea
 
 ## What the relay does that Google does not document
 
-- A bare sheet name is the whole range (`Sheet1`), and config refuses a title with a space or a quote because the quoting rule for such a title was not retrieved.
+- The append names column A as its range (`Sheet1!A:A`), because the page says the range is searched for the table: column A is never empty, so a column that is empty in every row cannot split the table. The sheet name is bare, and config refuses a title with a space or a quote because the quoting rule for such a title was not retrieved.
 - Column A is always the event id. `values.append` writes at the table's first column, so the sink reads `tableRange` from the first answer and refuses a table that does not begin at column A.
 - One append in flight per spreadsheet across processes. Concurrent appends to one sheet: not found, the concurrent-edits page was not retrieved.
 - A read-back of column A, to find a row an ambiguous send may have written, is the relay's own method; no saved page describes how long a slow append can take to land, so a read-back that finds nothing counts only after 60 seconds have passed since the last try that may have written.

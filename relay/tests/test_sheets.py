@@ -25,7 +25,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from relay import ghl, redact
 from relay.config import ConfigError, load_config
 from relay.fanout import Hooks
-from relay.http import Http
+from relay.http import Http, HttpResult
 from relay.sinks import sheets as sheets_mod
 from relay.sinks.base import AMBIGUOUS, DEAD, DONE, PAUSE, RETRY, Event, SinkContext
 from relay.sinks.sheets import ABSENT_AFTER_S, MAX_CELL_CHARS, SheetsSink, backoff_429, b64url, make_assertion, parse_account, table_start_column
@@ -271,7 +271,7 @@ def test_the_append_request_is_raw_insert_rows_on_a_bare_sheet_name_with_a_beare
     out = sink.send(make_event(), http, ctx)
     assert out.kind == DONE and out.effect_ref == "Sheet1!A1:L1" and sheets.effects == 1
     req = [r for r in sheets.requests if r["method"] == "POST"][0]
-    assert req["path"] == f"/v4/spreadsheets/{SPREADSHEET_ID}/values/Sheet1:append"
+    assert req["path"] == f"/v4/spreadsheets/{SPREADSHEET_ID}/values/Sheet1!A:A:append"  # column A, which is never empty
     assert req["headers"]["authorization"].startswith("Bearer ya29.fake-token-")
     body = req["json"]
     assert list(body) == ["values"] and len(body["values"]) == 1 and all(isinstance(c, str) for c in body["values"][0])
@@ -328,10 +328,26 @@ def test_a_lead_with_every_optional_field_missing_still_appends(sheets, sa_json,
 # ---- the table must start at column A -----------------------------------------------------------------------------------------------
 
 
+class MisplacedTable:
+    """Wraps the Http seam and rewrites the answer of an append so it reports a table that starts at another column (the guard
+    is defence in depth: the append range is column A, so the fake itself can no longer place a row anywhere else)."""
+
+    def __init__(self, inner, table_range: str) -> None:
+        self.inner, self.table_range = inner, table_range
+
+    def request(self, method, url, **kw):
+        res = self.inner.request(method, url, **kw)
+        if method == "POST" and "append" in url and res.status == 200:
+            doc = json.loads(res.text)
+            doc["tableRange"] = self.table_range
+            return HttpResult(status=200, headers=res.headers, text=json.dumps(doc))
+        return res
+
+
 @pytest.mark.parametrize("origin", ["C1", "B1"])
 def test_a_table_that_does_not_start_at_column_a_is_refused_and_the_sink_stops_writing(sheets, sa_json, store, origin):
     sink, http, ctx = fixed(sheets, store, sa_json)
-    sheets.seed([["event_id", "name"], ["old", "Old Lead"]], origin)  # a table that begins at column B or C
+    http = MisplacedTable(http, f"Sheet1!{origin}:D5")  # the answer says the table begins at column B or C
     out = sink.send(make_event(event_id="e1"), http, ctx)
     assert out.kind == DEAD and out.reason == "table does not start at column A"
     writes = sheets.effects
