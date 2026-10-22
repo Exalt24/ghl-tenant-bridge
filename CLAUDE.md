@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-How Claude Code works on this repo. Two packages: the Next.js app at the root and the Cloudflare Worker in `edge/`.
+How Claude Code works on this repo. Three packages: the Next.js app at the root, the Cloudflare Worker in `edge/` and the Python relay in `relay/`.
 
 ## Before building
 
@@ -14,6 +14,7 @@ How Claude Code works on this repo. Two packages: the Next.js app at the root an
 - Idempotency is a database constraint, not a check-then-write. Deduplicate on the delivery id with a primary key.
 - Secrets live in `wrangler secret put` or an untracked `.env`, never in a file under git. A test greps `edge/` for account ids and key material.
 - Test config must never be able to weaken verification in production: the test key override only works when `ENVIRONMENT` is exactly `test`, and `wrangler.toml` never sets it (a test asserts that).
+- Relay secrets only come from environment variables named in the JSON config, never a literal in a file, and never into a log line or a database column (a test seeds secrets and greps both). Nothing is acknowledged before the durable commit: a failure before it is a 503. Idempotency in relay is a primary key, the claim is one conditional statement on the database clock, and delivery is at least once with a stored outcome per event and sink, never "exactly once".
 - A Workers module exports only handlers. Constants and helpers live in `edge/src/core.ts`; `edge/src/worker.ts` is the entry. The real runtime rejected a worker that exported a constant, which the Node tests could not see.
 
 ## Tests: run all of them before saying done
@@ -21,6 +22,8 @@ How Claude Code works on this repo. Two packages: the Next.js app at the root an
 - App: `npm run typecheck`, then `npm run test:logic`. The suites that touch a live service run a positive control first, so a broken request cannot pass for a successful refusal.
 - Edge, from `edge/`: `npm run test:all` runs the typecheck, the offline suite (real Ed25519, real SQLite behind the D1 API, a seeded property test), the mutation check (each mutant deletes one guard and the suite must go red) and the end-to-end run in real workerd.
 - A new guard gets a mutant in `edge/test/mutants.mjs` in the same change. A survivor means the guard is untested, so fix the test, not the mutant.
+- Relay, from `relay/` (Python 3.13, `python -m venv .venv`, `pip install -r requirements-dev.txt`): `python -m pytest -q` runs every test on SQLite and on Postgres. Postgres needs `DATABASE_URL_TEST` (`docker run -d --name relay-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:17`, then `postgresql://postgres:pw@127.0.0.1:55432/postgres`); with it unset the Postgres half is skipped and says so, and CI sets `RELAY_REQUIRE_POSTGRES=1` so it can never skip there. `python tests/mutants.py` copies the package, breaks one guard per mutant and requires the suite to go red.
+- A new relay guard gets a mutant in `relay/tests/mutants.py` in the same change, and every test that touches a vendor fake runs a positive control first (the fixtures in `relay/tests/conftest.py` do it). Vendor fakes are hand written from saved vendor pages, fixtures are tagged `doc` or `observed` in `relay/contracts/<vendor>/SOURCE.md`, and nothing in relay is `observed`: no real vendor account was used, so the README never says "verified" or "live" for it.
 - A claim in the README is a number from a run in this repo, with its date.
 
 ## Git

@@ -1,0 +1,4 @@
+{
+  "header": "x-make-apikey",
+  "assumed_status_when_wrong": 401
+}

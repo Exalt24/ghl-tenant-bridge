@@ -1,0 +1,6 @@
+{
+  "requests_per_10_seconds": 300,
+  "inactive_expiry_days": 5,
+  "inactive_status": 410,
+  "max_payload_bytes": 5242880
+}

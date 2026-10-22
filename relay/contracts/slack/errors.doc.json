@@ -1,0 +1,16 @@
+{
+  "provenance": "names are doc, the status each arrives with is ASSUMED",
+  "errors": [
+    "action_prohibited", "channel_is_archived", "invalid_payload", "invalid_token", "no_active_hooks", "no_service",
+    "no_service_id", "no_team", "no_text", "posting_to_general_channel_denied", "team_disabled", "too_many_attachments",
+    "user_not_found", "channel_not_found"
+  ],
+  "assumed_status": {
+    "invalid_payload": 400,
+    "no_text": 400,
+    "action_prohibited": 403,
+    "no_service": 404,
+    "channel_not_found": 404
+  },
+  "never_retry_without_change": ["invalid_payload", "user_not_found", "channel_not_found"]
+}

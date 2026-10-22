@@ -1,0 +1,4 @@
+{
+  "request": {"text": "Hello, world."},
+  "response": {"status": 200, "body": "ok"}
+}

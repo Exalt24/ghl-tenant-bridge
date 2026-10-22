@@ -1,0 +1,226 @@
+"""Fan-out: ingest an event once, then run each (event, sink) delivery independently.
+
+The request path only stores (ingest). Sending happens in the worker through `run_one`, one claimed row at a time, so a
+slow vendor never holds a request open and one sink's failure never touches another sink's row.
+
+Retry accounting, the part most easily gotten wrong:
+  RETRY      the vendor did not act. Spends NO attempt budget. A lead goes dead only by age (72 h, per sink).
+  AMBIGUOUS  the vendor may have acted. Spends the budget (6), because every try can duplicate.
+  PAUSE      a tenant level fault (revoked hook, 403). The lead stays pending, the sink pauses for that tenant.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import random
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+from . import ghl
+from .config import Config, SinkCfg
+from .sinks.base import AMBIGUOUS, DEAD, DONE, PAUSE, RETRY, SKIPPED, Event, Outcome, Sink, SinkContext
+from .store.base import Claim, FinishPlan, IngestResult, SqlStore
+
+log = logging.getLogger("relay.fanout")
+
+MAX_ATTEMPTS = 6
+BACKOFF_BASE_S = 60.0
+BACKOFF_CAP_S = 3600.0
+BREAKER_THRESHOLD = 5
+BREAKER_OPEN_S = 60.0
+LEASE_MIN_S = 300.0
+LEASE_TIMEOUT_FACTOR = 3.0
+MAX_REASON_CHARS = 200
+
+
+class Unrouted(Exception):
+    """The event cannot be routed to a tenant with at least one enabled sink. The caller answers 503 and alerts."""
+
+
+def route(cfg: Config, payload: dict[str, Any]) -> str:
+    tenant = cfg.tenant_for_location(payload.get("locationId"))
+    if tenant is None:
+        raise Unrouted("unmapped location")
+    return tenant
+
+
+def ingest(
+    store: SqlStore,
+    cfg: Config,
+    *,
+    tenant: str,
+    key: str,
+    basis: str,
+    source: str,
+    payload_json: str,
+) -> IngestResult:
+    """Store the event and freeze its sink set, in one transaction. Raises Unrouted when no sink is enabled."""
+    tcfg = cfg.tenants.get(tenant)
+    sinks = tcfg.enabled_sinks() if tcfg else []
+    if not sinks:
+        raise Unrouted("tenant has no enabled sink")
+    window = tcfg.dedupe_window_s if basis in ghl.DERIVED_BASES else None
+    return store.ingest(
+        key=key, tenant=tenant, source=source, basis=basis, payload=payload_json, sinks=sinks, window_s=window
+    )
+
+
+def backoff_s(n: int, rng: random.Random) -> float:
+    """min(60 * 2^n, 3600) seconds, with jitter so a recovered vendor is not hit by every row at the same second."""
+    base = min(BACKOFF_BASE_S * (2 ** max(n, 0)), BACKOFF_CAP_S)
+    return base / 2 + rng.random() * base / 2
+
+
+@dataclass
+class Hooks:
+    """Fault injection for the crash window tests. Both stay None in production."""
+
+    before_send: Callable[[Claim], None] | None = None
+    after_send: Callable[[Claim, Outcome], None] | None = None
+
+
+@dataclass
+class RunContext:
+    store: SqlStore
+    cfg: Config
+    registry: dict[str, Sink]
+    http: Any
+    rng: random.Random = field(default_factory=random.Random)
+    hooks: Hooks = field(default_factory=Hooks)
+
+
+def lease_for(cfg: Config, sink: str, default_timeout_s: float) -> float:
+    timeouts = [t.sinks[sink].timeout_s for t in cfg.tenants.values() if sink in t.sinks] or [default_timeout_s]
+    return max(LEASE_MIN_S, LEASE_TIMEOUT_FACTOR * max(timeouts))
+
+
+def plan_for(outcome: Outcome, claim: Claim, scfg: SinkCfg | None, rng: random.Random, sent: bool) -> FinishPlan:
+    """Turns an outcome into the one final write. Pure, so the retry arithmetic is testable on its own."""
+    kind = outcome.kind
+    min_interval = scfg.min_interval_s if (sent and scfg) else None
+    reason = (outcome.reason or "")[:MAX_REASON_CHARS] or None
+    plan = FinishPlan(
+        state="pending", status=outcome.status, error=reason, effect_ref=outcome.effect_ref,
+        note=reason, min_interval_s=min_interval,
+        breaker_threshold=BREAKER_THRESHOLD, breaker_open_s=BREAKER_OPEN_S,
+    )
+    if kind == DONE:
+        plan.state, plan.attempts_inc, plan.ok, plan.error = "done", 1, True, None
+        plan.breaker = "ok" if sent else None
+        return plan
+    if kind == SKIPPED:
+        plan.state = "skipped"
+        return plan
+    if kind == DEAD:
+        # A delivery that died without a try (expired, sink disabled, payload purged) spent no attempt.
+        plan.state, plan.attempts_inc = "dead", 1 if sent else 0
+        plan.alerts.append(("dead", reason or "dead"))
+        return plan
+
+    # Everything below is non terminal: RETRY, AMBIGUOUS, PAUSE.
+    if kind == RETRY:
+        plan.retries_inc = 1
+        plan.delay_s = outcome.after_s if outcome.after_s is not None else backoff_s(claim.retries, rng)
+        if outcome.rate_limited:
+            plan.rate_limit_s = plan.delay_s
+    elif kind == AMBIGUOUS:
+        plan.attempts_inc = 1
+        plan.delay_s = backoff_s(claim.attempts, rng)
+    elif kind == PAUSE:
+        plan.retries_inc = 1
+        pause_s = outcome.pause_s or (scfg.pause_s if scfg else 900.0)
+        plan.delay_s, plan.pause_s, plan.pause_reason = pause_s, pause_s, reason
+        plan.alerts.append(("pause", reason or "paused"))
+    else:  # an unknown kind is a sink bug, never a silent success
+        plan.state, plan.attempts_inc, plan.error = "dead", 1, f"unknown outcome kind"
+        plan.alerts.append(("dead", "unknown outcome kind"))
+        return plan
+    if outcome.breaker_failure:
+        plan.breaker = "fail"
+    if claim.attempts + plan.attempts_inc >= MAX_ATTEMPTS:
+        plan.state, plan.delay_s = "dead", 0.0
+        plan.error = f"attempt budget spent after {claim.attempts + plan.attempts_inc} tries"
+        plan.alerts.append(("dead", plan.error))
+    return plan
+
+
+def _sink_cfg(cfg: Config, tenant: str, sink: str) -> SinkCfg | None:
+    t = cfg.tenants.get(tenant)
+    s = t.sinks.get(sink) if t else None
+    return s if (s is not None and s.enabled) else None
+
+
+def run_one(ctx: RunContext, claim: Claim) -> Outcome:
+    """Run one claimed delivery to its final write. One bad lead never stops the loop: any exception from a sink
+    becomes DEAD with the class name on the FIRST occurrence."""
+    scfg = _sink_cfg(ctx.cfg, claim.tenant, claim.sink)
+    sink = ctx.registry.get(claim.sink)
+    sent = False
+    outcome: Outcome
+    event_row = ctx.store.get_event(claim.event_id)
+    if scfg is None or sink is None:
+        outcome = Outcome.dead("sink disabled")
+    elif claim.age_s > scfg.max_age_s:
+        outcome = Outcome.dead(f"expired: older than {int(scfg.max_age_s // 3600)} hours")
+    elif event_row is None or event_row["payload"] is None:
+        outcome = Outcome.dead("payload purged")
+    else:
+        if ctx.hooks.before_send is not None:
+            ctx.hooks.before_send(claim)
+        outcome, sent = _attempt(ctx, claim, scfg, sink, event_row)
+    if ctx.hooks.after_send is not None:
+        ctx.hooks.after_send(claim, outcome)
+    plan = plan_for(outcome, claim, scfg, ctx.rng, sent)
+    if ctx.store.finish(claim, plan):
+        log.info("delivery %s %s %s status=%s", claim.event_id[:12], claim.sink, outcome.kind, outcome.status)
+    else:
+        log.warning("delivery %s %s lost its lease, final write ignored", claim.event_id[:12], claim.sink)
+    return outcome
+
+
+def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row: dict[str, Any]) -> tuple[Outcome, bool]:
+    try:
+        payload = json.loads(event_row["payload"])
+    except ValueError:
+        return Outcome.dead("stored payload is not JSON"), False
+    event = Event(
+        event_id=claim.event_id,
+        tenant=claim.tenant,
+        source=event_row["source"],
+        payload=payload if isinstance(payload, dict) else {},
+        lead=ghl.normalise_lead(payload),
+    )
+    sctx = SinkContext(
+        tenant=claim.tenant, url=scfg.url, timeout_s=scfg.timeout_s, apikey=scfg.apikey,
+        attempts=claim.attempts, retries=claim.retries,
+    )
+    try:
+        outcome = sink.send(event, ctx.http, sctx)
+        if outcome.kind == AMBIGUOUS and sink.can_reconcile:
+            outcome = _resolve(sink, event, ctx.http, sctx, outcome)
+        return outcome, outcome.kind != SKIPPED
+    except Exception as exc:
+        log.error("sink %s raised %s", claim.sink, type(exc).__name__, exc_info=True)
+        return Outcome.dead(f"sink bug: {type(exc).__name__}"), True
+
+
+def _resolve(sink: Sink, event: Event, http: Any, sctx: SinkContext, outcome: Outcome) -> Outcome:
+    """An ambiguous send on a sink that can read back: found means it landed, absent means it did not."""
+    found = sink.reconcile(event, http, sctx)
+    if found == "found":
+        return Outcome.done(status=outcome.status, effect_ref="reconciled")
+    if found == "absent":
+        return Outcome.retry(status=outcome.status, reason="reconciled absent", breaker_failure=True)
+    return outcome
+
+
+def process_next(ctx: RunContext, sink_name: str) -> bool:
+    """Claim and run ONE row for a sink. False when nothing is claimable."""
+    sink = ctx.registry.get(sink_name)
+    default_timeout = sink.default_timeout_s if sink else 10.0
+    claim = ctx.store.claim(sink_name, lease_for(ctx.cfg, sink_name, default_timeout))
+    if claim is None:
+        return False
+    run_one(ctx, claim)
+    return True

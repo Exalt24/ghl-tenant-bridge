@@ -1,0 +1,5 @@
+{
+  "response": {"status": 429, "headers": {"Retry-After": "30"}},
+  "unit": "Retry-After is a number of seconds",
+  "messages_per_second_per_channel": 1
+}

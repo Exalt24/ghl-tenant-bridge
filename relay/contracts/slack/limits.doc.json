@@ -1,0 +1,8 @@
+{
+  "max_blocks_per_message": 50,
+  "max_section_text_chars": 3000,
+  "max_header_text_chars": 150,
+  "recommended_text_chars": 4000,
+  "text_truncated_over_chars": 40000,
+  "escape": {"&": "&amp;", "<": "&lt;", ">": "&gt;"}
+}

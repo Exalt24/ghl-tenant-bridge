@@ -1,0 +1,6 @@
+{
+  "accepted": {"status": 200, "body": "Accepted"},
+  "queue_full": {"status": 400, "body": "Queue is full"},
+  "rate_limited": {"status": 429, "body": "Too many requests"},
+  "note": "the default response can be replaced by a Webhook response module"
+}

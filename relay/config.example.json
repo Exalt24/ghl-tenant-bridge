@@ -1,0 +1,16 @@
+{
+  "locations": {
+    "REPLACE_WITH_A_GHL_LOCATION_ID": "acme"
+  },
+  "alert_webhook_env": "ALERT_WEBHOOK",
+  "tenants": {
+    "acme": {
+      "workflow_secret_env": "ACME_WORKFLOW_SECRET",
+      "dedupe_window_s": 3600,
+      "sinks": {
+        "slack": {"url_env": "ACME_SLACK_URL"},
+        "make": {"url_env": "ACME_MAKE_URL", "apikey_env": "ACME_MAKE_KEY"}
+      }
+    }
+  }
+}
