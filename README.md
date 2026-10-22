@@ -122,7 +122,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/noaa.ts` / `src/lib/swdi.ts` | Live NWS alerts and historical hail via NCEI SWDI, both keyless. |
 | `src/app/api/webhooks/ghl/route.ts` | The receiver: verify, replay window, tenant resolve, idempotency, apply, dead-letter. |
 | `edge/` | A Cloudflare Worker that verifies GHL's Ed25519 signature, stores each delivery once in D1 and forwards it on a cron with backoff. Its own tests, including real workerd. See [edge/README.md](edge/README.md). |
-| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack and a Make webhook, at least once, with a stored outcome per sink, on SQLite or Postgres. Built against the vendors' documented contracts and tested with local fakes only, no vendor account was used. Its own README holds the per integration register. See [relay/README.md](relay/README.md). |
+| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. Built against the vendors' documented contracts and tested with local fakes only, no vendor account was used. Its own README holds the per integration register. See [relay/README.md](relay/README.md). |
 | `docs/INTEGRATION_CONTRACT.md` | Token classes, limits, failure matrix, known gaps. |
 | `docs/DEMO_PORTABILITY.md` | What is free and permanent vs what expires or costs money. |
 

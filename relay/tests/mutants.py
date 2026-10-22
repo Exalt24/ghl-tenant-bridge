@@ -583,7 +583,7 @@ def run_one(mutant: Mutant) -> tuple[str, str]:
 
 
 # A parameter id can hold spaces ("test_x[(650) 555-1212-None-None]"), so the id runs to the closing bracket and not to the
-# first space. Pytest appends " - <message>" after it, which is not part of the id.
+# first space. Pytest appends the failure message after the id, and that is not part of the id.
 FAILED_LINE = re.compile(r"^FAILED (\S+?\[.*?\](?= - |$)|\S+)", re.MULTILINE)
 PRISTINE: Path | None = None  # an unmutated copy, made once per run; a catching test must pass there
 

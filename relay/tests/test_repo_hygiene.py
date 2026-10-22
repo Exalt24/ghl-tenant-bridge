@@ -117,7 +117,7 @@ def test_ci_has_a_relay_job_with_postgres_and_every_action_pinned_by_sha():
     assert "working-directory: relay" in job and "image: postgres:17" in job and "timeout-minutes: 10" in job
     assert "python -m pytest" in job and 'RELAY_REQUIRE_POSTGRES: "1"' in job and "docker build" in job
     mutants = ci[ci.index("\n  relay-mutants:"):]
-    assert "shard: [1, 2, 3]" in mutants and "tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/3" in mutants
+    assert "shard: [1, 2, 3, 4, 5]" in mutants and "tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/5" in mutants
     assert "image: postgres:17" in mutants and "timeout-minutes: 10" in mutants
     uses = re.findall(r"uses:\s*(\S+)", ci)
     assert uses and all(re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", u) for u in uses), uses
@@ -177,11 +177,12 @@ def test_the_register_has_a_row_with_four_cells_for_every_integration():
 
 def test_rows_for_integrations_not_built_yet_say_so_and_built_ones_do_not():
     rows = register_rows()
-    for name in ("Meta Conversions API", "Google Sheets", "Meta Insights", "Windsor.ai", "Fathom", "Reconciliation"):
+    for name in ("Meta Insights", "Windsor.ai", "Fathom", "Reconciliation"):
         assert "NOT BUILT YET" in rows[name][1], name
-    for name in ("Slack", "Make"):
+    for name in ("Slack", "Make", "Meta Conversions API", "Google Sheets"):
         assert "NOT BUILT YET" not in " ".join(rows[name]), name
         assert "doc" in rows[name][3] and "observed" not in rows[name][3].lower().replace("nothing is observed", ""), name
+        assert "ASSUMED" in " ".join(rows[name]) or name in ("Slack",), name  # a doc only integration names what is assumed
 
 
 def test_the_readme_says_no_real_vendor_account_was_used_and_never_calls_a_doc_integration_verified_or_live():

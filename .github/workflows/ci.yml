@@ -77,15 +77,15 @@ jobs:
           curl -fsS http://127.0.0.1:8000/health
           docker rm -f relay-ci
 
-  # The mutants are split across three runners so the whole list fits the time limit with room to spare. Every mutant
-  # still runs: shard i of 3 takes every third mutant starting at i, and each must be caught by a named failing test.
+  # The mutants are split across five runners so the whole list fits the time limit with room to spare. Every mutant
+  # still runs: shard i of 5 takes every fifth mutant starting at i, and each must be caught by a named failing test.
   relay-mutants:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
     defaults:
       run:
         working-directory: relay
@@ -111,5 +111,5 @@ jobs:
           cache: pip
           cache-dependency-path: relay/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: Mutants, shard ${{ matrix.shard }} of 3, each must be caught
-        run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/3
+      - name: Mutants, shard ${{ matrix.shard }} of 5, each must be caught
+        run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/5
