@@ -1,7 +1,7 @@
 /**
  * GHL inbound webhook receiver.
  *
- * The contract this route is written to, which is ASC-Edge's own standard:
+ * The contract this route is written to:
  *   "A feature is not finished merely because a webhook was sent. It is finished
  *    when the correct information reaches the correct destination, produces the
  *    intended result, handles failures safely, and can be verified."
