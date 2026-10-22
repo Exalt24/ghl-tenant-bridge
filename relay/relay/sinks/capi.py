@@ -8,7 +8,8 @@ hour window only for the Pixel and server pairing; for two server copies it give
 
 What the relay will NOT send, and why each one is visible instead of silent:
   SKIPPED  an event type with no mapping, an opportunity that is not won, a Purchase with no currency or no value from
-           config, and (by default) a lead with no click id. Terminal, with the reason stored.
+           config, and (by default) a lead with no click id. Terminal, with the reason stored. An event with no `type` at
+           all (a workflow body that left it out) also raises an alert, because no conversion would ever reach Meta.
   DEAD     an event older than the 7 day rule at SEND time (Meta rejects the whole request), and a lead with no field
            Meta could match on.
   PAUSE    codes 190 and 102 (a token Meta no longer accepts): the lead stays pending, the sink pauses, an alert goes out.
@@ -205,8 +206,11 @@ class CapiSink(Sink):
         lead = event.lead
         kind = lead.get("event_type") or ""
         name = extra["event_map"].get(kind)
+        if not kind:
+            # A workflow body with no `type` is the one skip that loses a lead the author meant to send, so it alerts.
+            return None, Outcome.skipped("event has no type field: add type Lead to the workflow body", alert=True)
         if not name:
-            return None, Outcome.skipped(f"event type {kind or 'none'} is not mapped")
+            return None, Outcome.skipped(f"event type {kind} is not mapped")
         if name == "Purchase":
             if kind.startswith("Opportunity") and (lead.get("status") or "").lower() != "won":
                 return None, Outcome.skipped("opportunity is not won")

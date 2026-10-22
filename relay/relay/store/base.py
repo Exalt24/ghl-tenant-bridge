@@ -16,6 +16,12 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
 CLAIMABLE_STATES = ("pending",)
+# The `source` of an event that is a Fathom meeting. Only the sinks a tenant lists in `meeting_sinks()` ever get one.
+MEETING_SOURCE = "fathom"
+# A replayed row is marked as "a try before this one may have reached the vendor, a while ago": a sink that can read back
+# (Sheets) then looks for the row before it appends, instead of adding a second copy of a lead that already landed. An hour
+# is longer than any sink waits for a late landing, so an empty read-back is believed at once.
+REPLAY_MARK_AGE_S = 3600.0
 ALERT_CAP_PER_SINK = 200
 
 
@@ -370,11 +376,15 @@ class SqlStore:
 
     # ---- operator actions ----------------------------------------------------------------------------------------
     def replay(self, event_id: str, sink: str | None = None, force: bool = False) -> int:
-        """Put selected deliveries back to pending. Only `dead` rows unless force, which also accepts done/skipped."""
+        """Put selected deliveries back to pending. Only `dead` rows unless force, which also accepts done/skipped.
+
+        The try counters start again, but the crash marker is kept (or set): the earlier try may have reached the vendor, and
+        a sink with a read back must look before it sends, so a replay never duplicates a row that already landed."""
         states = ("dead", "done", "skipped") if force else ("dead",)
         marks = ", ".join("?" for _ in states)
         sql = (
-            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, claims = 0, maybe_acted_at = NULL, "
+            f"UPDATE deliveries SET state = 'pending', attempts = 0, retries = 0, claims = 0, "
+            f"maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)}), "
             f"created_at = {self.now()}, "
             f"next_at = {self.now()}, claim_until = NULL, claim_token = NULL, last_status = NULL, last_error = NULL, "
             f"finished_at = NULL WHERE event_id = ? AND state IN ({marks})"
@@ -386,16 +396,21 @@ class SqlStore:
         with self.tx() as t:
             return t.execute(sql, tuple(params)).rowcount
 
-    def backfill(self, tenant: str, sink: str, since: datetime) -> int:
-        """Insert the delivery rows an event never got (the sink was enabled later). Existing rows are left alone."""
+    def backfill(self, tenant: str, sink: str, since: datetime, with_meetings: bool = False) -> int:
+        """Insert the delivery rows an event never got (the sink was enabled later). Existing rows are left alone. A stored
+        Fathom meeting is given only to a sink the caller says takes meetings (`with_meetings`)."""
+        sql = (
+            f"INSERT INTO deliveries (event_id, sink, tenant, state, created_at, next_at) "
+            f"SELECT e.event_id, ?, e.tenant, 'pending', {self.now()}, {self.now()} FROM events e "
+            f"WHERE e.tenant = ? AND e.received_at >= ? AND e.payload IS NOT NULL "
+            f"AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = e.event_id AND d.sink = ?)"
+        )
+        params: list[Any] = [sink, tenant, self.ts_param(since), sink]
+        if not with_meetings:
+            sql += " AND e.source <> ?"
+            params.append(MEETING_SOURCE)
         with self.tx() as t:
-            return t.execute(
-                f"INSERT INTO deliveries (event_id, sink, tenant, state, created_at, next_at) "
-                f"SELECT e.event_id, ?, e.tenant, 'pending', {self.now()}, {self.now()} FROM events e "
-                f"WHERE e.tenant = ? AND e.received_at >= ? AND e.payload IS NOT NULL "
-                f"AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = e.event_id AND d.sink = ?)",
-                (sink, tenant, self.ts_param(since), sink),
-            ).rowcount
+            return t.execute(sql, tuple(params)).rowcount
 
     def purge(self, older_than_days: float = 30.0) -> int:
         """Null the stored payload of old events. The row stays, so dedupe still holds."""

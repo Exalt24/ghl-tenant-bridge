@@ -27,14 +27,15 @@ MAX_REASONS = 5
 def digest_text(sink: str, rows: list[dict[str, Any]]) -> str:
     dead = sum(1 for r in rows if r["kind"] == "dead")
     paused = sum(1 for r in rows if r["kind"] == "pause")
-    other = len(rows) - dead - paused
+    skipped = sum(1 for r in rows if r["kind"] == "skipped")
+    other = len(rows) - dead - paused - skipped
     tenants = sorted({r["tenant"] for r in rows if r["tenant"]})
     reasons: list[str] = []
     for r in rows:
         if r["reason"] not in reasons:
             reasons.append(r["reason"])
     parts = [f"relay alert, {sink}: {len(rows)} item(s)"]
-    breakdown = [f"{n} {label}" for n, label in ((dead, "dead"), (paused, "paused"), (other, "other")) if n]
+    breakdown = [f"{n} {label}" for n, label in ((dead, "dead"), (paused, "paused"), (skipped, "skipped"), (other, "other")) if n]
     if breakdown:
         parts.append(", ".join(breakdown))
     if tenants:

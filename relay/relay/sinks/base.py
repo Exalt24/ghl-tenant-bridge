@@ -40,6 +40,9 @@ class Outcome:
     rate_limited: bool = False
     # Counts toward the circuit breaker (server errors, timeouts, refused connections). A 429 does not.
     breaker_failure: bool = False
+    # A SKIPPED outcome the operator must hear about because it loses something they expected (an alert row is written
+    # with the final write). A skip that is the sink working as designed stays quiet.
+    alert: bool = False
 
     @staticmethod
     def done(status: int | None = 200, effect_ref: str | None = None) -> "Outcome":
@@ -66,8 +69,8 @@ class Outcome:
         return Outcome(DEAD, status=status, reason=reason)
 
     @staticmethod
-    def skipped(reason: str) -> "Outcome":
-        return Outcome(SKIPPED, reason=reason)
+    def skipped(reason: str, alert: bool = False) -> "Outcome":
+        return Outcome(SKIPPED, reason=reason, alert=alert)
 
     @staticmethod
     def pause(reason: str, pause_s: float | None = None, status: int | None = None) -> "Outcome":

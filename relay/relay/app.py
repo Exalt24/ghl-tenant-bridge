@@ -27,7 +27,7 @@ from .config import Config, load_config
 from .fanout import Unrouted
 from .http import Http
 from .store import open_store
-from .store.base import SqlStore
+from .store.base import MEETING_SOURCE, SqlStore
 
 __all__ = ["Deps", "create_app"]
 
@@ -245,7 +245,7 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
         if meeting is None:
             return _err(400, "recording_id-required")
         message_id = request.headers["webhook-id"]
-        sinks = ["slack"] if fcfg.slack else []
+        sinks = tcfg.meeting_sinks() if tcfg else []
 
         def keep_meeting(t: Any) -> None:
             store.save_meeting(
@@ -255,7 +255,7 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
 
         try:
             result = store.ingest(
-                key=message_id, tenant=tenant, source="fathom", basis=ghl.BASIS_NATIVE,
+                key=message_id, tenant=tenant, source=MEETING_SOURCE, basis=ghl.BASIS_NATIVE,
                 payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=keep_meeting,
             )
         except Exception as exc:
@@ -328,7 +328,7 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
         if when.tzinfo is None:
             when = when.replace(tzinfo=timezone.utc)
         try:
-            n = store.backfill(tenant, sink, when)
+            n = store.backfill(tenant, sink, when, with_meetings=sink in tcfg.meeting_sinks())
         except Exception as exc:
             log.error("backfill failed: %s", type(exc).__name__)
             return _err(503, "store")

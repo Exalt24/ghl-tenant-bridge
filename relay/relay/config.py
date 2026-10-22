@@ -121,6 +121,10 @@ class TenantCfg:
     def enabled_sinks(self) -> list[str]:
         return sorted(n for n, s in self.sinks.items() if s.enabled)
 
+    def meeting_sinks(self) -> list[str]:
+        """The sinks a Fathom meeting goes to: Slack, and only when the tenant's fathom block says `slack: true`."""
+        return ["slack"] if self.fathom is not None and self.fathom.slack else []
+
 
 @dataclass
 class Config:

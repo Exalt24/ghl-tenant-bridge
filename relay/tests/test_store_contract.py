@@ -339,6 +339,14 @@ def test_replay_resets_only_dead_rows_by_default(store):
     assert store.delivery("r1", "make")["state"] == "done"
 
 
+def test_a_skipped_row_is_replayed_only_with_force(store):
+    put(store, key="r3", sinks=["slack"])
+    c = store.claim("slack", lease_s=300)
+    store.finish(c, FinishPlan(state="skipped", error="event type X is not mapped"))
+    assert store.replay("r3", "slack") == 0 and store.delivery("r3", "slack")["state"] == "skipped"
+    assert store.replay("r3", "slack", force=True) == 1 and store.delivery("r3", "slack")["state"] == "pending"
+
+
 def test_replay_of_a_done_row_needs_force_and_resets_the_age_clock(store):
     put(store, key="r2", sinks=["slack"])
     c = store.claim("slack", lease_s=300)

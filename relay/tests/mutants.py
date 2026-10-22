@@ -114,6 +114,9 @@ T_CFG3 = ["tests/test_config_tier3.py"]
 T_TOOLS = ["tests/test_tools.py"]
 T_STORE3 = ["tests/test_store_tier3.py"]
 T_CONTRACTS3 = ["tests/test_contracts_tier3.py"]
+T_CORPUS = ["tests/test_output_corpus.py"]
+T_CLASS_F2 = ["tests/test_class_tables.py::test_class_f2_a_recovery_action_never_adds_a_second_copy_a_sink_could_have_found"]
+T_CLASS_F3 = ["tests/test_class_tables.py::test_class_f3_a_backfill_gives_each_sink_only_the_sources_it_accepts"]
 
 MUTANTS: list[Mutant] = [
     # ---- ingest and the store ----------------------------------------------------------------------------------------
@@ -168,8 +171,8 @@ MUTANTS: list[Mutant] = [
       ('            f"created_at = {self.now()}, "\n', ""),
       tests=T_STORE),
     M("backfill duplicates existing delivery rows", STORE,
-      ("f\"AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = e.event_id AND d.sink = ?)\",\n                (sink, tenant, self.ts_param(since), sink),",
-       "f\"AND ? IS NOT NULL\",\n                (sink, tenant, self.ts_param(since), sink),"),
+      ("f\"AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.event_id = e.event_id AND d.sink = ?)\"\n        )",
+       "f\"AND ? IS NOT NULL\"\n        )"),
       tests=T_STORE),
     M("purge nulls payloads that are not old yet", STORE,
       ("AND received_at <= {self.now(-older_than_days * 86400.0)}", "AND received_at >= {self.now(-older_than_days * 86400.0)}"), tests=T_STORE),
@@ -211,7 +214,7 @@ MUTANTS: list[Mutant] = [
     M("an ambiguous send on a sink that can read back is not reconciled", FAN,
       ("        if outcome.kind == AMBIGUOUS and sink.can_reconcile:", "        if False:"), tests=T_FAN),
     M("a skipped delivery raises an alert", FAN,
-      ('    if kind == SKIPPED:\n        plan.state = "skipped"\n        return plan', '    if kind == SKIPPED:\n        plan.state = "skipped"\n        plan.alerts.append(("dead", "skipped"))\n        return plan'),
+      ('        if outcome.alert:\n            plan.alerts.append(("skipped", reason or "skipped"))\n', '        plan.alerts.append(("dead", "skipped"))\n'),
       tests=T_FAN),
     M("the retry backoff has no cap", FAN,
       ("    base = min(BACKOFF_BASE_S * (2 ** max(n, 0)), BACKOFF_CAP_S)", "    base = BACKOFF_BASE_S * (2 ** max(n, 0))"), tests=T_FAN),
@@ -452,7 +455,7 @@ MUTANTS: list[Mutant] = [
     M("the maybe_acted mark is never stored", STORE, ("1 if (plan.maybe_acted or claim.prior_claim_lost) else 0,", "0,"), tests=T_STORE2),
     M("the age of the maybe_acted mark is not read", STORE, ('since_maybe_acted_s=None if row["since_maybe_acted_s"] is None else float(row["since_maybe_acted_s"]),', "since_maybe_acted_s=None,"), tests=T_STORE2),
     M("maybe_acted_before is never set", STORE, ('maybe_acted_before=row["maybe_acted_at"] is not None,', "maybe_acted_before=False,"), tests=T_STORE2),
-    M("replay keeps the lost claim and the maybe_acted mark", STORE, ("claims = 0, maybe_acted_at = NULL, ", ""), tests=T_STORE2),
+    M("replay keeps the lost claim and the maybe_acted mark", STORE, ("attempts = 0, retries = 0, claims = 0, \"\n", "attempts = 0, retries = 0, \"\n"), tests=T_STORE2),
     M("get_event does not report the received time", STORE, ('            row["received_epoch"] = to_epoch(row["received_at"])', '            row["received_epoch"] = None'), tests=T_STORE2),
     M("the append lock never blocks", STORE, ("            return cur.rowcount == 1\n\n    def _lock_release", "            return True\n\n    def _lock_release"), tests=T_STORE2 + T_SHEETS),
     M("the append lock is never released", STORE, ('            t.execute("DELETE FROM append_locks WHERE lock_key = ? AND holder = ?", (key, holder))', "            pass"), tests=T_STORE2),
@@ -655,8 +658,8 @@ MUTANTS: list[Mutant] = [
     M("Fathom route: an unknown tenant is a 404 that names it", APP, ('            return _err(401, "unauthorised")  # an unknown tenant answers like a bad signature, so the route names no tenant', '            return _err(404, "not-found")'), tests=T_FROUTE),
     M("Fathom route: the signature problem is not acted on", APP, ("        if problem is not None:\n            return _err(401, problem)", "        if False:\n            return _err(401, problem)"), tests=T_FROUTE),
     M("Fathom route: the body cap is the 256 KB default", APP, ("        raw = read_body(fcfg.max_body_bytes)", "        raw = read_body(cfg.max_body_bytes)"), tests=T_FROUTE),
-    M("Fathom route: the event is keyed on the recording and not the webhook id", APP, ("                key=message_id, tenant=tenant, source=\"fathom\"", "                key=meeting[\"recording_id\"], tenant=tenant, source=\"fathom\""), tests=T_FROUTE),
-    M("Fathom route: every enabled sink gets the meeting", APP, ('        sinks = ["slack"] if fcfg.slack else []', "        sinks = cfg.tenants[tenant].enabled_sinks()"), tests=T_FROUTE),
+    M("Fathom route: the event is keyed on the recording and not the webhook id", APP, ("                key=message_id, tenant=tenant, source=MEETING_SOURCE", "                key=meeting[\"recording_id\"], tenant=tenant, source=MEETING_SOURCE"), tests=T_FROUTE),
+    M("Fathom route: every enabled sink gets the meeting", APP, ("        sinks = tcfg.meeting_sinks() if tcfg else []", "        sinks = cfg.tenants[tenant].enabled_sinks()"), tests=T_FROUTE),
     M("Fathom route: the meeting is stored outside the event's transaction", APP, ("payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=keep_meeting,", "payload=fathom_hook.build_reduced_payload(meeting), sinks=sinks, window_s=None, on_new=None,"), ('        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})\n\n    def admin_gate()', '        with store.tx() as t:\n            keep_meeting(t)\n        return jsonify({"ok": True, "duplicate": result.duplicate, "event_id": result.event_id})\n\n    def admin_gate()'), tests=T_FROUTE),
     M("Fathom route: a failure before the commit is acknowledged", APP, ('            log.error("fathom ingest failed before commit: %s", type(exc).__name__)\n            return _err(503, "store")', '            log.error("fathom ingest failed before commit: %s", type(exc).__name__)\n            return jsonify({"ok": True})'), tests=T_FROUTE),
     M("Fathom route: the signature is checked over a reserialised body", APP, ("request.headers, raw, deps.clock(), fcfg.tolerance_s)", "request.headers, json.dumps(json.loads(raw)).encode(), deps.clock(), fcfg.tolerance_s)"), tests=T_FROUTE),
@@ -769,6 +772,26 @@ MUTANTS: list[Mutant] = [
     M("container smoke: the inline worker is not switched on", TSMOKE, ('"RELAY_INLINE_WORKER": "1", ', ""), tests=T_TOOLS),
     M("container smoke: waiting returns on the first look whatever it finds", TSMOKE, ("        value = cond()\n        if value:\n            return value", "        value = cond()\n        if True:\n            return value"), tests=T_TOOLS),
     M("container smoke: the fake inside the container writes to another file", TSFAKE, ('LOG = "/tmp/slack-requests.jsonl"', 'LOG = "/tmp/other.jsonl"'), tests=T_TOOLS),
+    # ---- first output pass, relay: F1 a skip the operator never sees, F2 a replay that duplicates, F3 a backfill that ignores the source ----
+    M("F1 a missing type is skipped without asking for an alert", CAP, ('workflow body", alert=True)', 'workflow body")'), tests=T_CAPI + T_CORPUS),
+    M("F1 a missing type is treated as any unmapped type", CAP, ("        if not kind:\n            # A workflow body", "        if kind is None:\n            # A workflow body"), tests=T_CAPI),
+    M("F1 every unmapped type alerts, not only a missing one", CAP, ("        if not kind:\n            # A workflow body", "        if not name:\n            # A workflow body"), tests=T_CAPI),
+    M("F1 every skipped outcome asks for an alert", BASE, ("    alert: bool = False\n", "    alert: bool = True\n"), tests=T_CAPI),
+    M("F1 a skipped outcome that asks for an alert never gets one", FAN, ("        if outcome.alert:\n            plan.alerts.append", "        if False:\n            plan.alerts.append"), tests=T_FAN),
+    M("F1 the skipped alert is filed as another kind", FAN, ('plan.alerts.append(("skipped", reason or "skipped"))', 'plan.alerts.append(("dead", reason or "skipped"))'), tests=T_FAN + T_CORPUS),
+    M("F1 the alert digest does not count skipped alerts", ALR, ('(skipped, "skipped"), ', ""), tests=T_FAN),
+    M("F2 a replay forgets the crash mark again", STORE, ('f"maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)}), "', 'f"maybe_acted_at = NULL, "'), tests=T_STORE2 + T_CORPUS),
+    M("F2 a forced replay leaves a skipped row skipped", STORE, ('states = ("dead", "done", "skipped") if force else ("dead",)', 'states = ("dead", "done") if force else ("dead",)'), tests=T_STORE),
+    M("F2 a replay marks the row as tried just now", STORE, ("{self.now(-REPLAY_MARK_AGE_S)}", "{self.now()}"), tests=T_STORE2),
+    M("F2 a replay overwrites an earlier mark with the long ago one", STORE, ("maybe_acted_at = COALESCE(maybe_acted_at, {self.now(-REPLAY_MARK_AGE_S)})", "maybe_acted_at = {self.now(-REPLAY_MARK_AGE_S)}"), tests=T_STORE2),
+    M("F2 the replay mark is shorter than the Sheets wait for a late append", STORE, ("REPLAY_MARK_AGE_S = 3600.0", "REPLAY_MARK_AGE_S = 30.0"), tests=T_STORE2 + T_CLASS_F2),
+    M("F3 a backfill gives a stored meeting to every sink", STORE, ("        if not with_meetings:\n            sql +=", "        if False:\n            sql +="), tests=T_CORPUS + T_CLASS_F3),
+    M("F3 a backfill never gives a meeting to any sink", STORE, ("        if not with_meetings:\n            sql +=", "        if True:\n            sql +="), tests=T_CLASS_F3),
+    M("F3 a backfill filters on the wrong source", STORE, ("params.append(MEETING_SOURCE)", 'params.append("ingest")'), tests=T_CORPUS + T_CLASS_F3),
+    M("F3 the backfill route lets every sink take meetings", APP, ("with_meetings=sink in tcfg.meeting_sinks()", "with_meetings=True"), tests=T_CORPUS + T_CLASS_F3),
+    M("F3 the backfill route lets Slack take meetings whatever the tenant chose", APP, ("with_meetings=sink in tcfg.meeting_sinks()", 'with_meetings=sink == "slack"'), tests=T_CLASS_F3),
+    M("F3 a tenant that did not opt in still has meeting sinks", CFG, ("self.fathom is not None and self.fathom.slack", "self.fathom is not None"), tests=T_FROUTE + T_CLASS_F3),
+    M("F3 a tenant that opted in has no meeting sink", CFG, ('return ["slack"] if self.fathom is not None and self.fathom.slack else []', "return []"), tests=T_FROUTE + T_CLASS_F3),
     M("container smoke: the lead has no tenant to route to", TSMOKE, ('"type": "ContactCreate", "locationId": LOCATION,', '"type": "ContactCreate", "locationId": "NOWHERE",'), tests=T_TOOLS),
 ]
 

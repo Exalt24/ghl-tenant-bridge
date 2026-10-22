@@ -370,12 +370,18 @@ def test_an_event_without_an_entity_id_falls_back_to_the_relay_event_id(at_now):
 
 
 def test_an_unmapped_event_type_is_skipped_with_a_reason_and_no_call(at_now):
-    for kind in ("ContactUpdate", "InvoicePaid", None):
-        p = ad_payload(type=kind) if kind else {k: v for k, v in ad_payload().items() if k != "type"}
-        out = send(at_now, p)
-        assert out.kind == SKIPPED and "not mapped" in out.reason, kind
+    for kind in ("ContactUpdate", "InvoicePaid"):
+        out = send(at_now, ad_payload(type=kind))
+        assert out.kind == SKIPPED and "not mapped" in out.reason and out.alert is False, kind  # a designed skip stays quiet
     assert at_now.requests == []
     assert send(at_now, ad_payload()).kind == DONE  # control: the mapped type goes through
+
+
+def test_an_event_with_no_type_at_all_is_skipped_and_asks_for_an_alert_naming_the_field(at_now):
+    out = send(at_now, {k: v for k, v in ad_payload().items() if k != "type"})
+    assert out.kind == SKIPPED and out.alert is True and "type" in out.reason and "Lead" in out.reason
+    assert send(at_now, ad_payload(type="")).alert is True  # a blank type is the same mistake
+    assert at_now.requests == []
 
 
 def test_an_opportunity_that_is_not_won_is_skipped_and_a_purchase_needs_a_currency_and_a_value(at_now):

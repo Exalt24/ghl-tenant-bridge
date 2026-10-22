@@ -111,6 +111,8 @@ def plan_for(outcome: Outcome, claim: Claim, scfg: SinkCfg | None, rng: random.R
         return plan
     if kind == SKIPPED:
         plan.state = "skipped"
+        if outcome.alert:
+            plan.alerts.append(("skipped", reason or "skipped"))
         return plan
     if kind == DEAD:
         # A delivery that died without a try (expired, sink disabled, payload purged) spent no attempt.

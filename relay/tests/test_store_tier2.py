@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from relay.store.base import FinishPlan, to_epoch
+from relay.store.base import REPLAY_MARK_AGE_S, FinishPlan, to_epoch
 
 from .helpers import wait_for
 from .test_store_contract import put
@@ -109,15 +109,31 @@ def test_a_plain_retry_or_pause_try_is_not_a_lost_claim(store):
         assert store.finish(c, retry_plan()) is True
 
 
-def test_replay_forgets_the_lost_claim_and_the_maybe_acted_mark(store):
+def test_replay_restarts_the_counters_but_keeps_the_mark_that_an_earlier_try_may_have_acted(store):
     put(store, sinks=["slack"])
     claim(store)
     store.advance(301)
     c = claim(store)
     assert store.finish(c, FinishPlan(state="dead", attempts_inc=1, error="boom", status=500, maybe_acted=True)) is True
+    store.advance(120)
     assert store.replay("k1", "slack") == 1
+    row = store.delivery("k1", "slack")
+    assert (row["attempts"], row["retries"], row["claims"]) == (0, 0, 0)
     fresh = claim(store)
-    assert (fresh.prior_claim_lost, fresh.maybe_acted_before, fresh.since_maybe_acted_s) == (False, False, None)
+    # The earlier try is remembered as it was (about two minutes ago), never forgotten, so a sink with a read back looks first.
+    assert fresh.prior_claim_lost is False and fresh.maybe_acted_before is True
+    assert 120 <= fresh.since_maybe_acted_s < 600
+
+
+def test_replay_marks_a_row_that_never_had_a_mark_as_tried_long_ago_so_the_read_back_is_believed_at_once(store):
+    put(store, sinks=["slack"])
+    c = claim(store)
+    assert store.finish(c, FinishPlan(state="done", attempts_inc=1, ok=True, status=200)) is True
+    assert store.delivery("k1", "slack")["maybe_acted_at"] is None  # a clean 200 leaves no mark
+    assert store.replay("k1", "slack", force=True) == 1
+    fresh = claim(store)
+    assert fresh.maybe_acted_before is True and fresh.prior_claim_lost is False
+    assert fresh.since_maybe_acted_s == pytest.approx(REPLAY_MARK_AGE_S, abs=30)
 
 
 # ---- the mark of a try that may have reached the vendor ------------------------------------------------------------------------------
