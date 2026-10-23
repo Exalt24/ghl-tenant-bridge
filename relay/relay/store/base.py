@@ -540,6 +540,90 @@ class SqlStore:
         with self.tx() as t:
             t.execute(f"UPDATE alerts SET sent_at = {self.now()} WHERE id IN ({marks})", tuple(ids))
 
+    # ---- history import, suppression list and the send time check ----------------------------------------------------------
+    def import_contacts(self, which: str, rows: list[tuple[str, str]], apply: bool) -> tuple[int, int]:
+        """Write `rows` to one list in ONE transaction and return (inserted, already_there). `which` is `history` (rows are
+        (contact_key, message_kind)) or `suppression` (rows are (contact_key, reason)). The primary key decides, so a repeat adds
+        nothing. With apply False nothing is written and `inserted` is how many rows WOULD be. A failure part way rolls the whole
+        batch back: an import is all or nothing."""
+        if which not in ("history", "suppression"):
+            raise ValueError("which must be history or suppression")
+        inserted = existing = 0
+        with self.tx(write=apply) as t:
+            for key, value in rows:
+                if apply:
+                    if which == "history":
+                        cur = t.execute(
+                            f"INSERT INTO sent_history (contact_key, message_kind, imported_at) VALUES (?, ?, {self.now()}) "
+                            f"ON CONFLICT (contact_key, message_kind) DO NOTHING",
+                            (key, value),
+                        )
+                    else:
+                        cur = t.execute(
+                            f"INSERT INTO suppression_list (contact_key, reason, added_at) VALUES (?, ?, {self.now()}) "
+                            f"ON CONFLICT (contact_key) DO NOTHING",
+                            (key, value),
+                        )
+                    hit = cur.rowcount == 1
+                elif which == "history":
+                    hit = t.execute("SELECT 1 AS one FROM sent_history WHERE contact_key = ? AND message_kind = ?", (key, value)).fetchone() is None
+                else:
+                    hit = t.execute("SELECT 1 AS one FROM suppression_list WHERE contact_key = ?", (key,)).fetchone() is None
+                if hit:
+                    inserted += 1
+                else:
+                    existing += 1
+                self._fault("import_mid")
+        return inserted, existing
+
+    def suppressed_among(self, keys: list[str]) -> set[str]:
+        """Which of these contact keys are on the suppression list."""
+        if not keys:
+            return set()
+        marks = ", ".join("?" for _ in keys)
+        with self.tx(write=False) as t:
+            return {r["contact_key"] for r in self._rows(t.execute(f"SELECT contact_key FROM suppression_list WHERE contact_key IN ({marks})", tuple(keys)))}
+
+    def contact_block(self, keys: list[str], message_kind: str) -> tuple[str, str] | None:
+        """Why this contact must not be sent this message kind, or None. ('suppressed', reason) when any key is on the
+        suppression list (that wins), ('already_sent', 'already sent before the relay') when any key has a history row of this
+        kind. The answer never carries the contact."""
+        if not keys:
+            return None
+        marks = ", ".join("?" for _ in keys)
+        with self.tx(write=False) as t:
+            row = self._one(t, f"SELECT reason FROM suppression_list WHERE contact_key IN ({marks}) ORDER BY contact_key LIMIT 1", tuple(keys))
+            if row is not None:
+                return "suppressed", str(row["reason"])
+            row = self._one(
+                t, f"SELECT 1 AS one FROM sent_history WHERE message_kind = ? AND contact_key IN ({marks}) LIMIT 1", (message_kind, *keys)
+            )
+            if row is not None:
+                return "already_sent", "already sent before the relay"
+        return None
+
+    # ---- heartbeat -------------------------------------------------------------------------------------------------------
+    def beat(self, name: str = "worker") -> None:
+        """Record that `name` is alive, on the database clock."""
+        with self.tx() as t:
+            t.execute(
+                f"INSERT INTO heartbeat (name, beat_at) VALUES (?, {self.now()}) "
+                f"ON CONFLICT (name) DO UPDATE SET beat_at = excluded.beat_at",
+                (name,),
+            )
+
+    def heartbeat_age_s(self, name: str = "worker") -> float | None:
+        """Seconds since `name` last beat, None when it never has."""
+        with self.tx(write=False) as t:
+            row = self._one(t, f"SELECT {self.age_s('beat_at')} AS age_s FROM heartbeat WHERE name = ?", (name,))
+        return None if row is None or row["age_s"] is None else float(row["age_s"])
+
+    def oldest_unfinished_age_s(self) -> float | None:
+        """Seconds since the oldest delivery that is still pending was created, None when nothing is pending."""
+        with self.tx(write=False) as t:
+            row = self._one(t, f"SELECT {self.age_s('MIN(created_at)')} AS age_s FROM deliveries WHERE state = 'pending'")
+        return None if row is None or row["age_s"] is None else float(row["age_s"])
+
     # ---- reads ---------------------------------------------------------------------------------------------------
     def get_event(self, event_id: str) -> dict[str, Any] | None:
         with self.tx(write=False) as t:

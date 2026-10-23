@@ -124,3 +124,25 @@ CREATE TABLE IF NOT EXISTS fathom_meetings (
   action_items TEXT,
   received_at  TEXT NOT NULL
 );
+
+-- Contacts the relay must treat specially at send time. contact_key is `email:<lower case>` or `phone:<E.164>` (relay/contacts.py).
+-- sent_history holds messages that went out BEFORE this relay (a history import): the same contact is not sent the same message kind
+-- again. suppression_list is do-not-contact: a listed contact is never sent anything, and the refusal is stored on the delivery.
+-- Both keys are primary keys, so a repeated import adds nothing.
+CREATE TABLE IF NOT EXISTS sent_history (
+  contact_key  TEXT NOT NULL,
+  message_kind TEXT NOT NULL,
+  imported_at  TEXT NOT NULL,
+  PRIMARY KEY (contact_key, message_kind)
+);
+CREATE TABLE IF NOT EXISTS suppression_list (
+  contact_key TEXT PRIMARY KEY,
+  reason      TEXT NOT NULL,
+  added_at    TEXT NOT NULL
+);
+
+-- One row per named beater (the worker), written on every cycle with the database clock. relay.health_check reads it.
+CREATE TABLE IF NOT EXISTS heartbeat (
+  name    TEXT PRIMARY KEY,
+  beat_at TEXT NOT NULL
+);

@@ -133,6 +133,11 @@ def build_meeting_message(event: Event) -> dict[str, Any]:
     return {"text": truncate_escaped(header, 300), "blocks": blocks}
 
 
+def build_alert_message(text: str) -> dict[str, Any]:
+    """A plain text message: escaped first, then cut, like every other text this sink sends."""
+    return {"text": truncate_escaped(text, SAFE_TEXT_CHARS) or "relay alert"}
+
+
 def truncate_escaped_lines(body: str) -> str:
     """The body lines were each escaped already; only the total needs the cap."""
     if len(body) <= SAFE_TEXT_CHARS:
@@ -155,6 +160,13 @@ class SlackSink(Sink):
 
     def send(self, event: Event, http: HttpLike, ctx: SinkContext) -> Outcome:
         message = build_meeting_message(event) if event.source == "fathom" else build_message(event)
+        return self._post(message, http, ctx)
+
+    def send_alert(self, text: str, http: HttpLike, ctx: SinkContext) -> Outcome:
+        """One plain text operator alert (the health check's) through the same request and the same status handling as a lead."""
+        return self._post(build_alert_message(text), http, ctx)
+
+    def _post(self, message: dict[str, Any], http: HttpLike, ctx: SinkContext) -> Outcome:
         body = json.dumps(message, ensure_ascii=False).encode("utf-8")
         try:
             res = http.request(

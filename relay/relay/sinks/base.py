@@ -73,6 +73,12 @@ class Outcome:
         return Outcome(SKIPPED, reason=reason, alert=alert)
 
     @staticmethod
+    def suppressed(reason: str) -> "Outcome":
+        """A contact the relay refuses to send to (do-not-contact, or already sent before the relay). Stored as a skipped
+        delivery whose effect_ref is `suppressed` or `already_sent` and whose error says why: never a silent skip."""
+        return Outcome(SKIPPED, reason=reason, effect_ref="suppressed" if reason.startswith("suppressed") else "already_sent")
+
+    @staticmethod
     def pause(reason: str, pause_s: float | None = None, status: int | None = None) -> "Outcome":
         return Outcome(PAUSE, status=status, reason=reason, pause_s=pause_s)
 

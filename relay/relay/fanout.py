@@ -18,7 +18,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import ghl, textsafe
+from . import contacts, ghl, textsafe
 from .config import Config, SinkCfg
 from .sinks.base import AMBIGUOUS, DEAD, DONE, PAUSE, RETRY, SKIPPED, Event, Outcome, Sink, SinkContext
 from .store.base import Claim, FinishPlan, IngestResult, SqlStore
@@ -107,7 +107,8 @@ class RunContext:
 
 def lease_for(cfg: Config, sink: str, default_timeout_s: float) -> float:
     timeouts = [t.sinks[sink].timeout_s for t in cfg.tenants.values() if sink in t.sinks] or [default_timeout_s]
-    return max(LEASE_MIN_S, LEASE_TIMEOUT_FACTOR * max(timeouts))
+    floor = LEASE_MIN_S if cfg.lease_min_s is None else cfg.lease_min_s
+    return max(floor, LEASE_TIMEOUT_FACTOR * max(timeouts))
 
 
 def plan_for(outcome: Outcome, claim: Claim, scfg: SinkCfg | None, rng: random.Random, sent: bool) -> FinishPlan:
@@ -216,6 +217,9 @@ def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row
         maybe_acted_before=claim.maybe_acted_before, since_maybe_acted_s=claim.since_maybe_acted_s,
         prior_claim_lost=claim.prior_claim_lost, lock=ctx.store.append_lock,
     )
+    refused = _contact_refusal(ctx, claim, event)
+    if refused is not None:
+        return refused, False
     try:
         outcome = sink.send(event, ctx.http, sctx)
         if outcome.kind == AMBIGUOUS and sink.can_reconcile:
@@ -224,6 +228,25 @@ def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row
     except Exception as exc:
         log.error("sink %s raised %s", claim.sink, type(exc).__name__, exc_info=True)
         return Outcome.dead(f"sink bug: {type(exc).__name__}"), True
+
+
+def _contact_refusal(ctx: RunContext, claim: Claim, event: Event) -> Outcome | None:
+    """The send time check: a suppressed contact, or one already sent this message kind by a history import, is never sent
+    to. The reason is stored on the delivery. When the lists cannot be read the row is retried and NOT sent: an unreadable
+    do-not-contact list is never read as an empty one."""
+    keys = contacts.lead_keys(event.lead, ctx.cfg.default_region)
+    if not keys:
+        return None
+    kind = event.lead.get("event_type") or "event"
+    try:
+        hit = ctx.store.contact_block(keys, kind)
+    except Exception as exc:
+        log.error("contact check for %s failed: %s", claim.sink, type(exc).__name__)
+        return Outcome.retry(reason=f"contact check failed: {type(exc).__name__}")
+    if hit is None:
+        return None
+    what, why = hit
+    return Outcome.suppressed(f"suppressed: {why}" if what == "suppressed" else why)
 
 
 def _resolve(sink: Sink, event: Event, http: Any, sctx: SinkContext, outcome: Outcome) -> Outcome:

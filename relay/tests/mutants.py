@@ -225,7 +225,7 @@ MUTANTS: list[Mutant] = [
     M("the retry backoff has no cap", FAN,
       ("    base = min(BACKOFF_BASE_S * (2 ** min(max(n, 0), EXPONENT_CAP)), BACKOFF_CAP_S)", "    base = BACKOFF_BASE_S * (2 ** max(n, 0))"), tests=T_FAN),
     M("the lease is shorter than the sink timeout allows", FAN,
-      ("    return max(LEASE_MIN_S, LEASE_TIMEOUT_FACTOR * max(timeouts))", "    return 1.0"), tests=T_FAN + T_CRASH),
+      ("    return max(floor, LEASE_TIMEOUT_FACTOR * max(timeouts))", "    return 1.0"), tests=T_FAN + T_CRASH),
     # ---- worker and alerts ---------------------------------------------------------------------------------------------------
     M("one sink's database error is not contained", WRK,
       ("        except Exception as exc:  # a database error on one sink must not stop the others", "        except ZeroDivisionError as exc:  # a database error on one sink must not stop the others"),

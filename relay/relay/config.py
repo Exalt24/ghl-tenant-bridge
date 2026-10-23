@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
-from . import redact
+from . import contacts, redact
 from .fathom_hook import parse_secret
 from .ghl import GHL_ED25519_SPKI_B64
 from .sinks import registry
@@ -144,6 +144,10 @@ class Config:
     locations: dict[str, str]
     tenants: dict[str, TenantCfg]
     ghl_webhook_max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
+    # None means the fan-out default (300 s). A lease is never shorter than three sink timeouts whatever this says.
+    lease_min_s: float | None = None
+    # How a phone with no country is read, by the send time contact check and by the history import (relay/contacts.py).
+    default_region: str = "US"
 
     def tenant_for_location(self, location_id: Any) -> str | None:
         return self.locations.get(location_id) if isinstance(location_id, str) else None
@@ -295,6 +299,18 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
         raise ConfigError("RELAY_WORKER_INTERVAL_S must be a number") from None
     if worker_interval_s <= 0:
         raise ConfigError("RELAY_WORKER_INTERVAL_S must be positive")
+    lease_min_s: float | None = None
+    if env.get("RELAY_LEASE_MIN_S"):
+        try:
+            lease_min_s = float(env["RELAY_LEASE_MIN_S"])
+        except ValueError:
+            raise ConfigError("RELAY_LEASE_MIN_S must be a number") from None
+        if not (lease_min_s >= 1.0) or lease_min_s == float("inf"):
+            raise ConfigError("RELAY_LEASE_MIN_S must be at least 1 second")
+    try:
+        region = contacts.default_region(env)
+    except contacts.ContactError as exc:
+        raise ConfigError(str(exc)) from None
     if not database_url and relay_env == "prod":
         if role == "worker_once":
             raise ConfigError("a separate worker service needs Postgres: set DATABASE_URL")
@@ -433,6 +449,8 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
         locations=dict(locations),
         tenants=tenants,
         ghl_webhook_max_body_bytes=ghl_cap,
+        lease_min_s=lease_min_s,
+        default_region=region,
     )
     redact.register(*cfg.secret_values())
     return cfg

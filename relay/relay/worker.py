@@ -88,6 +88,10 @@ class Worker:
         return done
 
     def _housekeeping(self) -> None:
+        try:
+            self.store.beat("worker")  # one row with the time, on every cycle; relay.health_check reads it
+        except Exception as exc:  # a failed beat shows up as a stale heartbeat, it must not stop the rest of the cycle
+            log.error("heartbeat write failed: %s", type(exc).__name__)
         ages: dict[str, float] = {}
         for tcfg in self.cfg.tenants.values():
             for name, scfg in tcfg.sinks.items():
