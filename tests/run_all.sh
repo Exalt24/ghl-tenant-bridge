@@ -76,6 +76,19 @@ else
   echo "SKIP (no pgis container; docker run --rm -d --name pgis -e POSTGRES_PASSWORD=pw -p 55432:5432 postgis/postgis:17-3.5)"
 fi
 
+# Farm-list intake (0005_farm_lists.sql) on the same pgis container, same skip rule.
+printf "%-38s " "farm lists (61 checks)"
+if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx pgis; then
+  if python tests/farm_lists.test.py >/dev/null 2>&1; then
+    echo PASS
+  else
+    echo FAIL
+    fail=1
+  fi
+else
+  echo "SKIP (no pgis container; docker run --rm -d --name pgis -e POSTGRES_PASSWORD=pw -p 55432:5432 postgis/postgis:17-3.5)"
+fi
+
 # OAuth claim verification. SKIPS rather than fails when the token files are absent,
 # because they hold live credentials and are gitignored, so a fresh clone legitimately
 # will not have them. A skip is reported loudly so it cannot be mistaken for a pass.

@@ -115,6 +115,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/outbox-transport-supabase.ts` | The Supabase transport. Derives the row count from a PostgREST `.select()`. |
 | `src/lib/outbox-transport-http.ts` | Reference transport for a non-Supabase backend. |
 | `supabase/migrations/0002_postgis.sql` | Spherical storm-to-property matching. Generated geography columns, GiST, `SECURITY INVOKER` so RLS applies. |
+| `supabase/migrations/0005_farm_lists.sql` | Farm lists of GPS points and polygons: every plot gets a status and a reason code, and `plot_overlaps` gives hectares and percent against a reference layer on geography. See [Farm lists](#farm-lists). |
 | `src/lib/geocode.ts` | US Census geocoding, keyless. Honest that it returns a block-face interpolation, not a rooftop. |
 | `src/lib/parcels.ts` | County ArcGIS parcel lookup. Envelope-only, because a point query silently matches nothing. |
 | `src/lib/ghl-signature.ts` | Dual Ed25519 / legacy-RSA verification, sunset-aware, fails closed. |
@@ -150,6 +151,7 @@ node tests/outbox.test.mjs         # 56  state machine, all deps injected
 node tests/outbox.browser.mjs      # 33  real Chromium, survives a reload
 node tests/offline-drain.e2e.mjs   # 10  capture offline, reconnect, queue empties
 python tests/postgis.test.py        # 25  real migrations on real Postgres
+python tests/farm_lists.test.py     # 61  farm-list intake on real PostGIS
 
 (cd edge && npm install && npm run test:all)   # 30 + 18 mutants + 10 in real workerd
 python tests/verify_public_keys.py  #     shipped keys == HighLevel's published keys
@@ -227,6 +229,10 @@ validates policy logic, not Supabase's permission model.
 Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_SHIM.md](docs/SUPABASE_SHIM.md).
 
 ---
+
+## Farm lists
+
+`supabase/migrations/0005_farm_lists.sql` validates a customer's GeoJSON of GPS points and polygons into a status and a reason code per plot, and `plot_overlaps` reports hectares and percent of overlap with a reference layer on geography. A bow-tie ring is rejected, not repaired, and two squares that only share an edge are not an overlap. Measured on 2026-10-24: 61 checks on real PostGIS and 17 of 17 guards caught by the mutation check. Sample data only, nothing deployed. The decisions, reason codes and limits are in [docs/farm-lists.md](docs/farm-lists.md).
 
 ## Known gaps
 

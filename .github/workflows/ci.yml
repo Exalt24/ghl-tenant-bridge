@@ -163,3 +163,20 @@ jobs:
       - name: The init script stops nothing on a Linux file mode
         run: python3 graphql/check_noop_init.py
       - run: python3 graphql/smoke.py
+
+  # The PostGIS suites (storm matching and the farm-list intake) on a real PostGIS container named pgis, which the tests find by name.
+  postgis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start PostGIS
+        run: |
+          docker run -d --name pgis -e POSTGRES_PASSWORD=pw postgis/postgis:17-3.5
+          for i in $(seq 1 60); do docker exec pgis pg_isready -U postgres && break; sleep 1; done
+      - name: Storm matching
+        run: python3 tests/postgis.test.py
+      - name: Farm lists
+        run: python3 tests/farm_lists.test.py
+      - name: Every farm-list guard has a mutant that the tests catch
+        run: python3 tests/farm_lists_mutants.py

@@ -11,7 +11,9 @@
     "test": "sh tests/run_all.sh",
     "test:logic": "node tests/outbox.test.mjs && node tests/geo.test.mjs && node tests/signature.test.mjs && node tests/workflow-auth.test.mjs",
     "test:browser": "node tests/outbox.browser.mjs",
-    "test:postgis": "python tests/postgis.test.py"
+    "test:postgis": "python tests/postgis.test.py",
+    "test:farmlists": "python tests/farm_lists.test.py",
+    "test:farmlists:mutants": "python tests/farm_lists_mutants.py"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
