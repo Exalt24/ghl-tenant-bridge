@@ -44,12 +44,22 @@ variable "private_subnet_ids" {
 variable "image_tag" {
   description = "The tag of the relay image in the repository this stack creates, for example 2026-10-24. Build it from relay/Dockerfile and push it after the first targeted apply (see ../README.md). The repository address comes from the stack, so the tag can be chosen before the repository exists."
   type        = string
+
+  validation {
+    condition     = length(var.image_tag) > 0
+    error_message = "image_tag must not be empty: the image reference would end in a colon and fail only at apply."
+  }
 }
 
 variable "vendor_secret_arns" {
   description = "Secrets Manager ARNs for the environment variables that RELAY_CONFIG names (a Slack webhook URL, a Meta token, a Sheets key). Map the variable name to the secret ARN; both services receive them and may read exactly these secrets. The relay refuses to start if a variable its config names is missing."
   type        = map(string)
   default     = {}
+
+  validation {
+    condition     = alltrue([for arn in values(var.vendor_secret_arns) : can(regex("^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$", arn))])
+    error_message = "Each vendor secret must be a plain Secrets Manager ARN with no :json-key:version suffix, because the same string is also the IAM resource and an ARN with a suffix would match nothing. The secrets must use the default AWS managed key; a customer managed key also needs kms:Decrypt on the execution roles."
+  }
 }
 
 variable "certificate_arn" {
@@ -96,18 +106,33 @@ variable "web_desired_count" {
   description = "Starting number of web tasks. Autoscaling takes over between web_min_count and web_max_count."
   type        = number
   default     = 2
+
+  validation {
+    condition     = var.web_desired_count >= var.web_min_count && var.web_desired_count <= var.web_max_count
+    error_message = "web_desired_count must sit between web_min_count and web_max_count."
+  }
 }
 
 variable "web_min_count" {
   description = "Autoscaling floor for the web service."
   type        = number
   default     = 2
+
+  validation {
+    condition     = var.web_min_count >= 1
+    error_message = "web_min_count must be at least 1: with no web task the load balancer has nothing to send a webhook to."
+  }
 }
 
 variable "web_max_count" {
   description = "Autoscaling ceiling for the web service."
   type        = number
   default     = 6
+
+  validation {
+    condition     = var.web_max_count >= var.web_min_count
+    error_message = "web_max_count must be at least web_min_count."
+  }
 }
 
 variable "db_instance_class" {

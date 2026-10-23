@@ -254,3 +254,16 @@ def test_http_helper_returns_status_zero_for_a_refused_connection_and_the_status
 def test_a_negation_in_one_table_cell_does_not_excuse_a_claim_in_another():
     assert bad("| Slack | not tested | nothing live |") == []  # control: the negation is in the same cell as the word
     assert bad("| Slack | not tested | verified |") != []
+
+
+def test_the_readme_counts_check_reads_the_real_files_and_notices_a_wrong_number():
+    counts = load("check_readme_counts")
+    actual = counts.counts()
+    assert actual["mutants"] > 500 and actual["test files"] > 30 and actual["assert lines"] > 1000  # control: it really counted something
+    right = "`python tests/mutants.py` holds %d mutants. The %d test files hold %d lines" % (actual["mutants"], actual["test files"], actual["assert lines"])
+    assert counts.claimed(right) == {"mutants": actual["mutants"], "test files": actual["test files"], "assert lines": actual["assert lines"]}
+    wrong = right.replace("holds %d mutants" % actual["mutants"], "holds %d mutants" % (actual["mutants"] - 1))
+    assert counts.claimed(wrong)["mutants"] != actual["mutants"]
+    assert counts.main() == 0  # the real README matches the real files today
+    assert counts.selftest() == 0  # the generated table of off-by-one READMEs is detected exactly when it should be
+

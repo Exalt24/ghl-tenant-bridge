@@ -230,6 +230,7 @@ resource "aws_ecs_service" "web" {
   desired_count                      = var.web_desired_count
   launch_type                        = "FARGATE"
   health_check_grace_period_seconds  = 60
+  wait_for_steady_state              = true # a failed first start fails the apply instead of reporting success
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
@@ -277,6 +278,7 @@ resource "aws_ecs_service" "worker" {
   task_definition                    = aws_ecs_task_definition.worker.arn
   desired_count                      = 1
   launch_type                        = "FARGATE"
+  wait_for_steady_state              = true
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 100
 

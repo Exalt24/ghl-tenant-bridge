@@ -17,14 +17,8 @@ mock_provider "aws" {
   mock_resource "aws_lb_target_group" {
     defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/mock/0123456789abcdef" }
   }
-  mock_resource "aws_secretsmanager_secret" {
-    defaults = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:mock-AbCdEf" }
-  }
   mock_resource "aws_ecs_cluster" {
     defaults = { arn = "arn:aws:ecs:us-east-1:123456789012:cluster/mock" }
-  }
-  mock_resource "aws_ecs_task_definition" {
-    defaults = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/mock:1" }
   }
 }
 
@@ -39,6 +33,44 @@ override_resource {
   target          = aws_iam_role.execution_worker
   override_during = apply
   values          = { arn = "arn:aws:iam::123456789012:role/worker-exec" }
+}
+
+# The two task definitions get different ARNs too, so a service started from the other service's task definition is visible.
+override_resource {
+  target          = aws_ecs_task_definition.web
+  override_during = apply
+  values          = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/web:1" }
+}
+
+override_resource {
+  target          = aws_ecs_task_definition.worker
+  override_during = apply
+  values          = { arn = "arn:aws:ecs:us-east-1:123456789012:task-definition/worker:1" }
+}
+
+# Each secret gets its own ARN, so a task or a policy pointed at the wrong secret is visible to the assertions below.
+override_resource {
+  target          = aws_secretsmanager_secret.database_url
+  override_during = apply
+  values          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:database_url-AbCdEf" }
+}
+
+override_resource {
+  target          = aws_secretsmanager_secret.ingest_token
+  override_during = apply
+  values          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:ingest_token-AbCdEf" }
+}
+
+override_resource {
+  target          = aws_secretsmanager_secret.admin_token
+  override_during = apply
+  values          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:admin_token-AbCdEf" }
+}
+
+override_resource {
+  target          = aws_secretsmanager_secret.relay_config
+  override_during = apply
+  values          = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:relay_config-AbCdEf" }
 }
 
 variables {
@@ -151,7 +183,7 @@ run "tmp_is_a_writable_volume_under_a_read_only_root" {
   assert {
     condition = alltrue([
       for td in [aws_ecs_task_definition.web, aws_ecs_task_definition.worker] :
-      length(td.volume) == 1 && contains([for m in jsondecode(td.container_definitions)[0].mountPoints : m.containerPath], "/tmp") && contains([for e in jsondecode(td.container_definitions)[0].environment : "${e.name}=${e.value}"], "HOME=/tmp")
+      length(td.volume) == 1 && contains([for m in jsondecode(td.container_definitions)[0].mountPoints : m.containerPath], "/tmp") && alltrue([for m in jsondecode(td.container_definitions)[0].mountPoints : m.readOnly == false]) && contains([for e in jsondecode(td.container_definitions)[0].environment : "${e.name}=${e.value}"], "HOME=/tmp")
     ])
     error_message = "with a read only root filesystem, /tmp must be a mounted volume and HOME must point at it, or gunicorn cannot start"
   }
@@ -161,7 +193,7 @@ run "health_checks_do_not_depend_on_the_database" {
   command = apply
 
   assert {
-    condition     = aws_lb_target_group.web.health_check[0].path == "/livez" && strcontains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].healthCheck.command[1], "/livez")
+    condition     = aws_lb_target_group.web.health_check[0].path == "/livez" && aws_lb_target_group.web.health_check[0].matcher == "200" && strcontains(jsondecode(aws_ecs_task_definition.web.container_definitions)[0].healthCheck.command[1], "/livez")
     error_message = "the load balancer and the container checks must use /livez, which does not touch the database"
   }
 }
@@ -223,7 +255,7 @@ run "with_a_certificate_port_80_only_redirects" {
   command = apply
 
   assert {
-    condition     = length(aws_lb_listener.https) == 1 && aws_lb_listener.http.default_action[0].type == "redirect"
+    condition     = length(aws_lb_listener.https) == 1 && aws_lb_listener.http.default_action[0].type == "redirect" && aws_lb_listener.https[0].ssl_policy == "ELBSecurityPolicy-TLS13-1-2-2021-06"
     error_message = "with a certificate there must be an HTTPS listener and port 80 must redirect"
   }
 }
@@ -276,4 +308,140 @@ run "a_dns_name_without_a_zone_is_refused" {
   }
 
   expect_failures = [var.route53_zone_id]
+}
+
+run "services_wait_for_a_healthy_first_start" {
+  command = apply
+
+  assert {
+    condition     = aws_ecs_service.web.wait_for_steady_state == true && aws_ecs_service.worker.wait_for_steady_state == true
+    error_message = "both services must wait for steady state so a failed first start fails the apply"
+  }
+}
+
+run "a_vendor_secret_arn_with_a_json_key_is_refused" {
+  command = plan
+
+  variables {
+    vendor_secret_arns = { SLACK_URL = "arn:aws:secretsmanager:us-east-1:123456789012:secret:slack-AbCdEf:url::" }
+  }
+
+  expect_failures = [var.vendor_secret_arns]
+}
+
+run "a_web_ceiling_below_the_floor_is_refused" {
+  command = plan
+
+  variables {
+    web_min_count = 4
+    web_max_count = 2
+  }
+
+  expect_failures = [var.web_max_count]
+}
+
+run "every_secret_entry_points_at_its_own_secret" {
+  command = apply
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_ecs_task_definition.web.container_definitions)[0].secrets :
+      s.valueFrom == {
+        DATABASE_URL       = "arn:aws:secretsmanager:us-east-1:123456789012:secret:database_url-AbCdEf"
+        RELAY_INGEST_TOKEN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:ingest_token-AbCdEf"
+        RELAY_ADMIN_TOKEN  = "arn:aws:secretsmanager:us-east-1:123456789012:secret:admin_token-AbCdEf"
+        RELAY_CONFIG       = "arn:aws:secretsmanager:us-east-1:123456789012:secret:relay_config-AbCdEf"
+      }[s.name]
+    ])
+    error_message = "each secret name in the web task must point at the secret of that name (an ingest token wired to the admin secret would give ingest callers admin rights)"
+  }
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].secrets :
+      s.valueFrom == {
+        DATABASE_URL = "arn:aws:secretsmanager:us-east-1:123456789012:secret:database_url-AbCdEf"
+        RELAY_CONFIG = "arn:aws:secretsmanager:us-east-1:123456789012:secret:relay_config-AbCdEf"
+      }[s.name]
+    ])
+    error_message = "each secret name in the worker task must point at the secret of that name"
+  }
+}
+
+run "each_role_can_read_only_its_own_secrets" {
+  command = apply
+
+  assert {
+    condition = (
+      join(",", sort(data.aws_iam_policy_document.read_secrets_worker.statement[0].resources)) ==
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:database_url-AbCdEf,arn:aws:secretsmanager:us-east-1:123456789012:secret:relay_config-AbCdEf"
+    )
+    error_message = "the worker's secret policy must name the database URL and the config and nothing else"
+  }
+  assert {
+    condition     = length(data.aws_iam_policy_document.read_secrets_web.statement[0].resources) == 4
+    error_message = "the web task's secret policy must name exactly its four secrets"
+  }
+  assert {
+    condition     = aws_iam_role_policy.execution_worker_secrets.role == aws_iam_role.execution_worker.id && aws_iam_role_policy.execution_web_secrets.role == aws_iam_role.execution_web.id
+    error_message = "each secret policy must be attached to its own service's role"
+  }
+}
+
+run "the_load_balancer_is_protected_from_deletion" {
+  command = apply
+
+  assert {
+    condition     = aws_lb.relay.enable_deletion_protection == true
+    error_message = "the load balancer must have deletion protection while var.deletion_protection is true"
+  }
+}
+
+run "relay_live_must_be_zero_or_one" {
+  command = plan
+
+  variables {
+    relay_live = "true"
+  }
+
+  expect_failures = [var.relay_live]
+}
+
+run "each_service_runs_its_own_task_definition" {
+  command = apply
+
+  assert {
+    condition     = aws_ecs_service.web.task_definition == "arn:aws:ecs:us-east-1:123456789012:task-definition/web:1" && aws_ecs_service.worker.task_definition == "arn:aws:ecs:us-east-1:123456789012:task-definition/worker:1"
+    error_message = "the web service must run the web task definition and the worker service the worker one (a worker service started from the web task would serve HTTP instead of draining deliveries)"
+  }
+}
+
+run "an_empty_image_tag_is_refused" {
+  command = plan
+
+  variables {
+    image_tag = ""
+  }
+
+  expect_failures = [var.image_tag]
+}
+
+run "a_desired_count_outside_the_scaling_bounds_is_refused" {
+  command = plan
+
+  variables {
+    web_desired_count = 9
+  }
+
+  expect_failures = [var.web_desired_count]
+}
+
+run "a_zero_task_floor_is_refused" {
+  command = plan
+
+  variables {
+    web_min_count     = 0
+    web_desired_count = 0
+  }
+
+  expect_failures = [var.web_min_count]
 }

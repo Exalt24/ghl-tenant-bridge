@@ -1,10 +1,12 @@
 # LIFESPAN: permanent
 """Mutation check for the Terraform guards (the same idea as relay/tests/mutants.py).
 
-Copies the stack to a temp folder, breaks ONE guard per mutant and runs `terraform test`. Every mutant must make exactly the run named for it fail.
+Copies the stack to a temp folder, breaks ONE guard per mutant and runs `terraform test`. Every mutant must make the run named for it fail (other runs may fail too),
+or, for ordering that the mocked provider cannot see, make tests/check_dependencies.py exit non-zero.
 A mutant that survives means the test for that guard cannot fail. The unmutated copy must pass first, so a broken harness cannot pass for a caught mutant.
 
     python tests/mutate.py            run every mutant (about a minute after the provider is cached)
+    python tests/mutate.py <text>     run only the mutants whose name contains the text
 """
 import os
 import shutil
@@ -48,6 +50,23 @@ MUTANTS = [
     ("the web service stops waiting for the secret values", "ecs.tf", "    aws_secretsmanager_secret_version.admin_token,\n    aws_secretsmanager_secret_version.relay_config,\n  ]\n\n  lifecycle", "    aws_secretsmanager_secret_version.relay_config,\n  ]\n\n  lifecycle", "script:check_dependencies.py"),
     ("the worker stops waiting for the database", "ecs.tf", "    aws_db_instance.relay,\n    aws_secretsmanager_secret_version.database_url,\n    aws_secretsmanager_secret_version.relay_config,\n  ]\n}", "    aws_secretsmanager_secret_version.database_url,\n    aws_secretsmanager_secret_version.relay_config,\n  ]\n}", "script:check_dependencies.py"),
     ("the web service stops waiting for the https listener", "ecs.tf", "    aws_lb_listener.http,\n    aws_lb_listener.https,\n", "    aws_lb_listener.http,\n", "script:check_dependencies.py"),
+    ("the worker no longer waits for a healthy first start", "ecs.tf", "  desired_count                      = 1\n  launch_type                        = \"FARGATE\"\n  wait_for_steady_state              = true\n", "  desired_count                      = 1\n  launch_type                        = \"FARGATE\"\n  wait_for_steady_state              = false\n", "services_wait_for_a_healthy_first_start"),
+    ("a vendor secret arn with a json key is accepted", "variables.tf", "alltrue([for arn in values(var.vendor_secret_arns) : can(", "alltrue([for arn in values(var.vendor_secret_arns) : true || can(", "a_vendor_secret_arn_with_a_json_key_is_refused"),
+    ("a web ceiling below the floor is accepted", "variables.tf", "condition     = var.web_max_count >= var.web_min_count", "condition     = var.web_max_count >= 0 && var.web_min_count >= 0", "a_web_ceiling_below_the_floor_is_refused"),
+    ("the worker policy can read the admin token", "ecs.tf", "      aws_secretsmanager_secret.database_url.arn,\n      aws_secretsmanager_secret.relay_config.arn,\n    ], values(var.vendor_secret_arns))", "      aws_secretsmanager_secret.database_url.arn,\n      aws_secretsmanager_secret.admin_token.arn,\n      aws_secretsmanager_secret.relay_config.arn,\n    ], values(var.vendor_secret_arns))", "each_role_can_read_only_its_own_secrets"),
+    ("the ingest token entry points at the admin secret", "ecs.tf", "{ name = \"RELAY_INGEST_TOKEN\", valueFrom = aws_secretsmanager_secret.ingest_token.arn }", "{ name = \"RELAY_INGEST_TOKEN\", valueFrom = aws_secretsmanager_secret.admin_token.arn }", "every_secret_entry_points_at_its_own_secret"),
+    ("the worker policy is attached to the web role", "ecs.tf", "  role        = aws_iam_role.execution_worker.id\n  policy      = data.aws_iam_policy_document.read_secrets_worker.json", "  role        = aws_iam_role.execution_web.id\n  policy      = data.aws_iam_policy_document.read_secrets_worker.json", "each_role_can_read_only_its_own_secrets"),
+    ("the load balancer can be deleted", "alb.tf", "enable_deletion_protection = var.deletion_protection", "enable_deletion_protection = false", "the_load_balancer_is_protected_from_deletion"),
+    ("relay_live accepts anything", "variables.tf", "condition     = contains([\"0\", \"1\"], var.relay_live)", "condition     = contains([\"0\", \"1\", var.relay_live], var.relay_live)", "relay_live_must_be_zero_or_one"),
+    ("the worker service runs the web task definition", "ecs.tf", "task_definition                    = aws_ecs_task_definition.worker.arn", "task_definition                    = aws_ecs_task_definition.web.arn", "each_service_runs_its_own_task_definition"),
+    ("the ingest token entry points at the admin secret (source check)", "ecs.tf", "{ name = \"RELAY_INGEST_TOKEN\", valueFrom = aws_secretsmanager_secret.ingest_token.arn }", "{ name = \"RELAY_INGEST_TOKEN\", valueFrom = aws_secretsmanager_secret.admin_token.arn }", "script:check_wiring.py"),
+    ("the worker policy lists the admin token (source check)", "ecs.tf", "      aws_secretsmanager_secret.database_url.arn,\n      aws_secretsmanager_secret.relay_config.arn,\n    ], values(var.vendor_secret_arns))", "      aws_secretsmanager_secret.database_url.arn,\n      aws_secretsmanager_secret.admin_token.arn,\n      aws_secretsmanager_secret.relay_config.arn,\n    ], values(var.vendor_secret_arns))", "script:check_wiring.py"),
+    ("the tmp mount is read only", "ecs.tf", "mount_points = [{ sourceVolume = \"tmp\", containerPath = \"/tmp\", readOnly = false }]", "mount_points = [{ sourceVolume = \"tmp\", containerPath = \"/tmp\", readOnly = true }]", "tmp_is_a_writable_volume_under_a_read_only_root"),
+    ("the https listener uses an old tls policy", "alb.tf", "ELBSecurityPolicy-TLS13-1-2-2021-06", "ELBSecurityPolicy-2016-08", "with_a_certificate_port_80_only_redirects"),
+    ("the health matcher accepts a 404", "alb.tf", "matcher             = \"200\"", "matcher             = \"200-499\"", "health_checks_do_not_depend_on_the_database"),
+    ("an empty image tag is accepted", "variables.tf", "condition     = length(var.image_tag) > 0", "condition     = length(var.image_tag) >= 0", "an_empty_image_tag_is_refused"),
+    ("a desired count outside the bounds is accepted", "variables.tf", "condition     = var.web_desired_count >= var.web_min_count && var.web_desired_count <= var.web_max_count", "condition     = var.web_desired_count >= 0", "a_desired_count_outside_the_scaling_bounds_is_refused"),
+    ("a zero task floor is accepted", "variables.tf", "condition     = var.web_min_count >= 1", "condition     = var.web_min_count >= 0", "a_zero_task_floor_is_refused"),
     ("one subnet accepted", "variables.tf", "condition     = length(var.public_subnet_ids) >= 2", "condition     = length(var.public_subnet_ids) >= 1", "subnets_in_two_zones_are_required"),
 ]
 
@@ -78,12 +97,15 @@ def main():
         if ok.returncode != 0:
             print("FAIL: the unmutated stack does not pass its own tests\n" + ok.stdout[-1200:])
             return 1
-        dep = subprocess.run([sys.executable, "-I", os.path.join(base, "tests", "check_dependencies.py")], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
-        if dep.returncode != 0:
-            print("FAIL: the unmutated stack does not pass check_dependencies.py\n" + dep.stdout[-600:])
-            return 1
+        for script in ("check_dependencies.py", "check_wiring.py"):
+            dep = subprocess.run([sys.executable, "-I", os.path.join(base, "tests", script)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+            if dep.returncode != 0:
+                print("FAIL: the unmutated stack does not pass " + script + "\n" + dep.stdout[-600:])
+                return 1
         print("baseline: pass")
-        for name, fname, old, new, run in MUTANTS:
+        only = [a for a in sys.argv[1:] if not a.startswith('-')]
+        todo = [m for m in MUTANTS if not only or any(o in m[0] for o in only)]
+        for name, fname, old, new, run in todo:
             dst = fresh()
             path = os.path.join(dst, fname)
             with open(path, encoding="utf-8", newline="") as fh:
@@ -111,7 +133,7 @@ def main():
                 failures.append("%s: not caught by %s" % (name, run))
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    print("MUTANTS: %d of %d caught" % (len(MUTANTS) - len(failures), len(MUTANTS)))
+    print("MUTANTS: %d of %d caught" % (len(todo) - len(failures), len(todo)))
     for f in failures:
         print("  " + f)
     return 1 if failures else 0

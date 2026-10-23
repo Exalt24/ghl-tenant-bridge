@@ -1,6 +1,6 @@
 output "webhook_url" {
   description = "The URL to give HighLevel. With domain_name and route53_zone_id it is your name; otherwise point your own DNS name at load_balancer_dns_name, because a certificate cannot cover an *.elb.amazonaws.com name."
-  value       = var.domain_name != "" ? "https://${var.domain_name}/" : "https://<your DNS name for ${aws_lb.relay.dns_name}>/"
+  value       = var.domain_name != "" ? "${var.certificate_arn == "" ? "http" : "https"}://${var.domain_name}/" : "${var.certificate_arn == "" ? "http" : "https"}://<your DNS name for ${aws_lb.relay.dns_name}>/"
 }
 
 output "load_balancer_dns_name" {

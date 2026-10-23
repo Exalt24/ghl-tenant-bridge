@@ -11,7 +11,7 @@ What it proves, in the order it runs:
   3. A spatial filter (_st_d_within on the generated geography column) answers in metres: the point 40 km away is inside a 50 km radius, the
      corner point about 67 km away is not, and it is inside a 100 km radius (a control, so an empty result cannot pass for a correct one).
   4. The `tenant` role only sees its own organisation's property events, and a request without the organisation header is refused.
-  5. Each mutant (a permission filter removed, the radius read as kilometres, the geography column left out) makes at least one check fail.
+  5. Each mutant (the permission filter removed, the geography column left out of the permission, PostGIS's schema taken off the search path) makes at least one check fail.
 Standard library only; needs docker. The admin secret in the compose file is a local development value.
 """
 import json
@@ -125,7 +125,7 @@ def checks():
     out = []
     out.append(("within 50 km: the 40 km point is in, the 67 km corner and the 200 km point are out", addresses(gql(WITHIN, {"from": POINT, "d": 50000})) == ["NEAR 40km"]))
     out.append(("within 100 km: the corner is reachable, so an empty result above is a real exclusion", addresses(gql(WITHIN, {"from": POINT, "d": 100000})) == ["CORNER 67km", "NEAR 40km"]))
-    out.append(("a row with no coordinates never matches a spatial filter", "NO COORDS" not in (addresses(gql(WITHIN, {"from": POINT, "d": 5_000_000})) or ["NO COORDS"])))
+    out.append(("a row with no coordinates never matches a spatial filter, while every row that has coordinates does (5,000 km)", addresses(gql(WITHIN, {"from": POINT, "d": 5_000_000})) == ["CORNER 67km", "FAR 200km", "NEAR 40km"]))
     out.append(("org A sees only its own four rows", addresses(gql(ALL_OWN, org=ORG_A)) == ["CORNER 67km", "FAR 200km", "NEAR 40km", "NO COORDS"]))
     out.append(("org B sees only its own row, and it matches the same radius", addresses(gql(WITHIN, {"from": POINT, "d": 50000}, org=ORG_B)) == ["ORG B 40km"]))
     status, body = gql(ALL_OWN, org=None)
