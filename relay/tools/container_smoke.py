@@ -50,9 +50,11 @@ def lead_payload() -> dict[str, Any]:
 def docker_run_args(name: str, port: int, image: str = IMAGE, relay_dir: Path = RELAY) -> list[str]:
     env = {
         "RELAY_ENV": "dev", "RELAY_INGEST_TOKEN": INGEST_TOKEN, "RELAY_INLINE_WORKER": "1", "RELAY_WORKER_INTERVAL_S": "1",
-        "WEB_CONCURRENCY": "1", "RELAY_CONFIG": build_config(), "SMOKE_SLACK_URL": f"http://127.0.0.1:{FAKE_PORT}{HOOK_PATH}",
+        "WEB_CONCURRENCY": "1", "RELAY_CONFIG": build_config(), "SMOKE_SLACK_URL": f"http://127.0.0.1:{FAKE_PORT}{HOOK_PATH}", "HOME": "/tmp",
     }
-    args = ["docker", "run", "-d", "--name", name, "-p", f"{port}:8000", "-v", f"{relay_dir}:/smoke:ro"]
+    # The same filesystem shape as the Fargate task in infra/: a read only root with writable /tmp and /data. Without /tmp the container exits with
+    # "No usable temporary directory found" (reproduced on 2026-10-24), and a plain `docker run` never shows that.
+    args = ["docker", "run", "-d", "--name", name, "--read-only", "--tmpfs", "/tmp", "--tmpfs", "/data:uid=10001", "-p", f"{port}:8000", "-v", f"{relay_dir}:/smoke:ro"]
     for k, v in env.items():
         args += ["-e", f"{k}={v}"]
     return args + [image]

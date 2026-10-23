@@ -112,3 +112,46 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Mutants, shard ${{ matrix.shard }} of 8, each must be caught
         run: python tests/mutants.py --no-baseline --shard ${{ matrix.shard }}/8
+
+  # No AWS account is needed: the plan runs with made-up identifiers and the tests use a mocked provider.
+  infra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.6
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.65.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - run: tflint --init && tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Offline plan
+        run: terraform plan -input=false -var-file=plan.tfvars.example
+        env:
+          AWS_ACCESS_KEY_ID: offline
+          AWS_SECRET_ACCESS_KEY: offline
+      - run: terraform test
+      - name: Ordering the mocked provider cannot see
+        run: python tests/check_dependencies.py
+      - name: Every guard has a mutant that the tests catch
+        run: python tests/mutate.py
+
+  # Real Hasura and a real PostGIS container. The runner has Docker, so this is the same run as on a laptop.
+  graphql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 graphql/smoke.py

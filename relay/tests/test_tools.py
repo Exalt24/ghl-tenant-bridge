@@ -161,6 +161,9 @@ def test_the_docker_command_mounts_the_relay_folder_read_only_publishes_the_port
     assert "8123:8000" in args and any(a.endswith(":/smoke:ro") for a in args)
     for forbidden in ("--privileged", "--network", "host"):
         assert forbidden not in args
+    # The container runs the way the Fargate task does: read only root, writable /tmp and /data, HOME on the writable /tmp.
+    assert "--read-only" in args and args[args.index("/tmp") - 1] == "--tmpfs" and any(a.startswith("/data") for a in args)
+    assert env_of(args)["HOME"] == "/tmp"
     env = env_of(args)
     assert env["RELAY_ENV"] == "dev" and env["RELAY_INLINE_WORKER"] == "1" and env["WEB_CONCURRENCY"] == "1"
 

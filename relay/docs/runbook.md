@@ -35,6 +35,6 @@ A CSV may be UTF-8 (with or without the byte order mark Excel adds to "CSV UTF-8
 
 - Builder: Dockerfile. No `railway.toml`, no Procfile: Railway's config as code is deprecated and its pages give a 2026-12-01 cutoff, so the Dockerfile plus these service settings are the whole description.
 - The Dockerfile command runs through `/bin/sh -c` because the exec form does not expand `${PORT}`, a generic Docker behaviour.
-- Healthcheck path `/health`.
+- Healthcheck path `/health` on Railway. On AWS (see `../../infra/`) the load balancer and the container check use `/livez`, which does not depend on the database.
 - `DATABASE_URL`: a variable reference to a Railway Postgres service, or a Supabase session mode pooler string. Supabase direct connections are IPv6 unless the project has the IPv4 add-on, so use the pooler if the Railway service has no IPv6 route (not established).
 - The worker is a second service from the same image, started with `python -m relay.worker`. A cron style service is a separate one shot service (`python -m relay.worker --once`, `python -m relay.pulls ...`) and needs Postgres, because it cannot share a SQLite file with the web service.

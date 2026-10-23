@@ -104,6 +104,12 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
     def _bad_method(_e: Exception) -> Response:
         return _err(405, "method-not-allowed")
 
+    @app.get("/livez")
+    def livez() -> Response:
+        # Process liveness only, no database. A container check that used /health would fail on every task at once during a database failover and the
+        # scheduler would replace them all just as the database came back. /health stays the readiness answer.
+        return jsonify({"ok": True})
+
     @app.get("/health")
     def health() -> Response:
         try:

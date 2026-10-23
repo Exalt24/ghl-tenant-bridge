@@ -305,6 +305,8 @@ MUTANTS: list[Mutant] = [
     M("a sink URL skips the base URL guard", CFG, ('            check_base_url(url, live, f"{where} url")', "            pass"), tests=T_CFG),
     M("log redaction registry skipped when the config loads", CFG, ("    redact.register(*cfg.secret_values())\n    return cfg", "    return cfg"), tests=T_CFG),
     # ---- ingress ----------------------------------------------------------------------------------------------------------------------
+    M("the container smoke runs with a writable root again", TSMOKE, ('"--name", name, "--read-only", ', '"--name", name, '), tests=T_TOOLS),
+    M("livez touches the database", APP, ('        return jsonify({"ok": True})\n\n    @app.get("/health")', '        store.ping()\n        return jsonify({"ok": True})\n\n    @app.get("/health")'), tests=T_APP),
     M("secret comparison is not constant time", APP, ('    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))', "    return a == b"), tests=T_APP),
     M("the previous ingest token is not accepted during rotation", APP, ("_any_match(presented, cfg.ingest_token, cfg.ingest_token_previous)", "_any_match(presented, cfg.ingest_token)"), tests=T_APP),
     M("the Idempotency-Key check removed", APP, ("        if not key or len(key) > MAX_KEY_CHARS or not key.isprintable():", "        if False:"), tests=T_APP),

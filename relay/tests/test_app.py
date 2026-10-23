@@ -60,6 +60,14 @@ def test_health_is_503_when_the_database_is_down(ctx, monkeypatch):
     assert client.get("/health").status_code == 503
 
 
+def test_livez_answers_200_without_touching_the_database(ctx, monkeypatch):
+    client, _cfg, store = ctx
+    assert client.get("/livez").status_code == 200 and client.get("/livez").get_json() == {"ok": True}
+    monkeypatch.setattr(store, "ping", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    assert client.get("/health").status_code == 503  # control: the database really is down
+    assert client.get("/livez").status_code == 200
+
+
 def test_unknown_paths_and_methods_answer_json(ctx):
     client, *_ = ctx
     assert client.get("/nope").status_code == 404 and client.get("/nope").get_json()["error"] == "not-found"

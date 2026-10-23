@@ -1,0 +1,45 @@
+name: ghl-graphql
+
+# A throwaway local stack: Postgres with PostGIS, the repository's own migrations applied on first start, and Hasura GraphQL Engine in front.
+# Ports bind to 127.0.0.1 only. The admin secret below is a local development value, not a credential.
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_PASSWORD: pw
+      POSTGRES_DB: relay_geo
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      # The same three files tests/postgis.test.py applies, in the same order, so this database has the production schema, not a copy of it.
+      - ../tests/supabase_shim.sql:/docker-entrypoint-initdb.d/01_shim.sql:ro
+      - ../supabase/migrations/0001_schema.sql:/docker-entrypoint-initdb.d/02_schema.sql:ro
+      - ../supabase/migrations/0002_postgis.sql:/docker-entrypoint-initdb.d/03_postgis.sql:ro
+      - ./search_path.sql:/docker-entrypoint-initdb.d/04_search_path.sql:ro
+      # The image's own PostGIS init scripts are replaced by a no-op: see noop.sh.
+      - ./noop.sh:/docker-entrypoint-initdb.d/10_postgis.sh:ro
+      - ./noop.sh:/docker-entrypoint-initdb.d/20_update-postgis.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d relay_geo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  hasura:
+    image: hasura/graphql-engine:v2.50.5
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      HASURA_GRAPHQL_DATABASE_URL: postgres://postgres:pw@db:5432/relay_geo
+      HASURA_GRAPHQL_ADMIN_SECRET: local-dev-only
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "false"
+      HASURA_GRAPHQL_DEV_MODE: "false"
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: startup, http-log, webhook-log, websocket-log, query-log
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

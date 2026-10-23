@@ -12,3 +12,11 @@ tests/location_token.json
 *.tar
 *.tar.gz
 *.zip
+
+# Terraform: the provider cache and any state stay local; the lock file is tracked
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfplan
+__pycache__/
+*.pyc

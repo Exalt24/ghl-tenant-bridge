@@ -1,0 +1,11 @@
+# Copy to backend.tf, fill in the bucket, and run `terraform init -migrate-state`. Not active until then, so the offline checks need no account.
+# Native S3 locking (use_lockfile) needs Terraform 1.11 or later and no DynamoDB table.
+terraform {
+  backend "s3" {
+    bucket       = "REPLACE-with-a-versioned-encrypted-bucket"
+    key          = "ghl-relay/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}

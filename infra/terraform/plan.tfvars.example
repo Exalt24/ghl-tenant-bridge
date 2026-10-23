@@ -1,0 +1,7 @@
+# Made-up identifiers so `terraform plan` can run with no AWS account. Used with offline_plan = true (see ../README.md).
+vpc_id             = "vpc-0123456789abcdef0"
+public_subnet_ids  = ["subnet-0aaaaaaaaaaaaaaa1", "subnet-0bbbbbbbbbbbbbbb2"]
+private_subnet_ids = ["subnet-0ccccccccccccccc3", "subnet-0ddddddddddddddd4"]
+image_tag          = "example"
+certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+offline_plan       = true

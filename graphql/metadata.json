@@ -1,0 +1,48 @@
+{
+  "type": "replace_metadata",
+  "args": {
+    "allow_inconsistent_metadata": false,
+    "metadata": {
+      "version": 3,
+      "sources": [
+        {
+          "name": "default",
+          "kind": "postgres",
+          "configuration": {
+            "connection_info": {
+              "database_url": { "from_env": "HASURA_GRAPHQL_DATABASE_URL" }
+            }
+          },
+          "tables": [
+            {
+              "table": { "schema": "public", "name": "property_events" },
+              "select_permissions": [
+                {
+                  "role": "tenant",
+                  "permission": {
+                    "columns": ["id", "org_id", "location_id", "kind", "occurred_at", "address", "summary", "geog"],
+                    "filter": { "org_id": { "_eq": "X-Hasura-Org-Id" } },
+                    "limit": 100
+                  }
+                }
+              ]
+            },
+            {
+              "table": { "schema": "public", "name": "weather_events" },
+              "select_permissions": [
+                {
+                  "role": "tenant",
+                  "permission": {
+                    "columns": ["id", "event_type", "occurred_at", "state", "county", "magnitude", "geog"],
+                    "filter": {},
+                    "limit": 100
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
