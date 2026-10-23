@@ -173,7 +173,13 @@ jobs:
       - name: Start PostGIS
         run: |
           docker run -d --name pgis -e POSTGRES_PASSWORD=pw postgis/postgis:17-3.5
-          for i in $(seq 1 60); do docker exec pgis pg_isready -U postgres && break; sleep 1; done
+          # The image starts a throwaway server to run its init, stops it and starts the real one, so pg_isready answers during the first
+          # one. The real server is up when its ready line has been printed twice.
+          for i in $(seq 1 90); do
+            [ "$(docker logs pgis 2>&1 | grep -c 'database system is ready to accept connections')" -ge 2 ] && break
+            sleep 1
+          done
+          docker exec pgis pg_isready -U postgres
       - name: Storm matching
         run: python3 tests/postgis.test.py
       - name: Farm lists
