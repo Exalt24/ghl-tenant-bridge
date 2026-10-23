@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# LIFESPAN: permanent
 """
 Farm-list intake tests against a REAL PostGIS.
 

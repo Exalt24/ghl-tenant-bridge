@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# LIFESPAN: permanent
 """
 Mutation check for 0005_farm_lists.sql: each mutant removes ONE guard in a temp copy of the migration and
 tests/farm_lists.test.py (pointed at the copy with FARM_LISTS_MIGRATION, in its own database) must go red.
