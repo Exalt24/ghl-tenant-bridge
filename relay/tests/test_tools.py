@@ -41,8 +41,15 @@ def test_the_real_readme_makes_no_claim_stronger_than_its_fixtures():
     assert claims.main([]) == 0
 
 
-def test_nothing_in_this_repo_is_observed():
-    assert claims.observed_vendors(RELAY / "contracts") == set()
+def test_only_google_has_observed_fixtures_and_its_readme_row_still_never_says_verified_or_live():
+    # Observed means a real answer was captured (user OAuth token, scratch sheet, 2026-10-23), not that the integration is verified:
+    # the service account sign-in and the relay's own HTTP client never ran against Google. The checker relaxes for an observed
+    # vendor, so this test keeps the Google row to the words of what was observed.
+    assert claims.observed_vendors(RELAY / "contracts") == {"google"}
+    text = (RELAY / "README.md").read_text(encoding="utf-8")
+    rows = [l for l in text.splitlines() if l.startswith("| Google Sheets |")]
+    assert len(rows) == 1 and "user OAuth token" in rows[0] and "not a service account" in rows[0]
+    assert not claims.FORBIDDEN.search(rows[0]), claims.FORBIDDEN.search(rows[0])
 
 
 @pytest.mark.parametrize(

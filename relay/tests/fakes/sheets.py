@@ -1,5 +1,16 @@
 """Fake Google OAuth token endpoint and Sheets v4 values endpoints, written from the saved Google pages (retrieved
-2026-10-22, see contracts/google/SOURCE.md) and RFC 7523.
+2026-10-22, see contracts/google/SOURCE.md) and RFC 7523, and corrected on 2026-10-23 against answers observed from the
+real Sheets API with a USER OAuth token on a scratch spreadsheet (the `*.observed.json` fixtures; the service account
+JWT exchange at the token endpoint was NOT observed and stays doc only).
+
+Observed and enforced here (tests/test_sheets.py replays the fixtures against this fake):
+  limit   a cell over 50,000 UTF-16 code units is a 400 for the whole append: 49,000 emoji (98,000 units) were refused
+  read    blank cells and rows come back as [] in a one column read, a bare sheet read returns whole rows, `range` is the
+          expanded A1 range, and a one cell range has no colon ("Big!A1")
+  auth    a missing bearer is a 401 on a POST and a 403 on a GET, a wrong bearer is a 401 UNAUTHENTICATED
+  429     the body carries the ErrorInfo details and there is no Retry-After header
+  400     a bogus valueInputOption is "Invalid value at 'value_input_option'", an empty or missing `values` is a 200 that
+          writes nothing
 
 Documented and enforced here:
   token   POST form with grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer and an assertion. The assertion is a JWT
@@ -19,11 +30,12 @@ body shapes of the error answers.
 Rules (names in `self.rules`) the fake enforces and a mutant can delete:
   signature  the JWT signature is verified          grant_type  the literal must match          no_padding  no `=` in the JWT
   claims     iss, scope and aud are checked          lifetime    exp - iat at most 65 minutes     clock       iat/exp near now
-  raw        a missing valueInputOption is a 400
+  raw        a missing valueInputOption is a 400      cell_limit  a cell over 50,000 UTF-16 units is a 400
 
 Append modes (script them with `queue`): ok, rate_limit (429), server_error (500, nothing written), act_then_fail (row
 written, answer 500), late (the request is held, and when released the row is written and the answer is sent to a client
-that has already given up), hang (held, nothing written), forbidden (403), notfound (404), bad_range (400).
+that has already given up), hang (held, nothing written), forbidden (403), notfound (404), bad_range (400 "Unable to
+parse range", which is also what a missing tab answers), bad_request (400 for a body the API cannot read).
 Token modes (`queue_token`): ok, invalid_grant, server_error.
 """
 
@@ -51,6 +63,19 @@ SPREADSHEET_ID = "fake-spreadsheet-id-0001"
 EMAIL = "relay-test@fake-project.iam.gserviceaccount.com"
 MAX_LIFETIME_S = 65 * 60
 TOKEN_TTL_S = 3600
+AUTH_HINT = "Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project."
+QUOTA_MESSAGE = "Quota exceeded for quota metric 'Write requests' and limit 'Write requests per minute per user' of service 'sheets.googleapis.com' for consumer 'project_number:000000000000'."
+QUOTA_DETAILS = [
+    {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "RATE_LIMIT_EXCEEDED",
+        "domain": "googleapis.com",
+        "metadata": {"quota_location": "global", "quota_limit_value": "60", "consumer": "projects/000000000000", "quota_limit": "WriteRequestsPerMinutePerUser", "quota_unit": "1/min/{project}/{user}", "quota_metric": "sheets.googleapis.com/write_requests", "service": "sheets.googleapis.com"},
+    }
+]
+CELL_LIMIT_MESSAGE = "Your input contains more than the maximum of 50000 characters in a single cell."
+MAX_CELL_UNITS = 50_000  # observed: counted in UTF-16 code units, so an emoji is two
+GRID_ROWS, GRID_COLS = 1000, 26  # a new tab's default grid, as the answers to a bare read show
 
 
 def service_account_json(private_key: rsa.RSAPrivateKey, token_url: str, email: str = EMAIL, key_id: str = "testkey01") -> str:
@@ -76,6 +101,16 @@ def col_letters(n: int) -> str:
     return out
 
 
+def a1(r1: int, c1: int, r2: int, c2: int) -> str:
+    """A1 notation the way the real API answers: a one cell range has no colon ("Big!A1")."""
+    first = f"{col_letters(c1)}{r1}"
+    return first if (r1, c1) == (r2, c2) else f"{first}:{col_letters(c2)}{r2}"
+
+
+def utf16_units(text: str) -> int:
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def _b64url_decode(part: str) -> bytes:
     return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
 
@@ -85,7 +120,7 @@ class FakeSheets(FakeVendor):
 
     def __init__(self, public_key: rsa.RSAPublicKey, email: str = EMAIL, spreadsheet_id: str = SPREADSHEET_ID, clock: Callable[[], float] = time.time) -> None:
         super().__init__()
-        self.rules = {"signature", "grant_type", "no_padding", "claims", "lifetime", "clock", "raw"}
+        self.rules = {"signature", "grant_type", "no_padding", "claims", "lifetime", "clock", "raw", "cell_limit"}
         self.public_key = public_key
         self.email = email
         self.spreadsheet_id = spreadsheet_id
@@ -104,6 +139,7 @@ class FakeSheets(FakeVendor):
     def reset(self) -> None:
         super().reset()
         self.cells.clear()
+        self.sheet = "Sheet1"
         self.token_script.clear()
         self.tokens.clear()
         self.token_requests.clear()
@@ -183,6 +219,21 @@ class FakeSheets(FakeVendor):
         top = max(rows) if rows else 0
         return [self.cells.get((r, col), "") for r in range(1, top + 1)]
 
+    def read_rows(self, rect: tuple[int, int, int, int] | None) -> tuple[str, list[list[Any]]]:
+        """(expanded A1 range, values) the way the real API answers a read: the range is clamped to the grid, a row stops at
+        its last filled cell (a blank cell before it is ""), a row with nothing in range is [], and rows after the last
+        filled one are dropped."""
+        max_row = max((r for r, _ in self.cells), default=0)
+        max_col = max((c for _, c in self.cells), default=0)
+        rows_n, cols_n = max(GRID_ROWS, max_row), max(GRID_COLS, max_col)
+        r1, c1, r2, c2 = (1, 1, rows_n, cols_n) if rect is None else (rect[0], rect[1], min(rect[2], rows_n), rect[3])
+        filled = [r for (r, c) in self.cells if r1 <= r <= r2 and c1 <= c <= c2]
+        values: list[list[Any]] = []
+        for r in range(r1, (max(filled) if filled else r1 - 1) + 1):
+            cols = [c for c in range(c1, c2 + 1) if (r, c) in self.cells]
+            values.append([self.cells.get((r, c), "") for c in range(c1, (max(cols) if cols else c1 - 1) + 1)])
+        return a1(r1, c1, r2, c2), values
+
     def rows_with_id(self, event_id: str) -> int:
         return sum(1 for (_r, c), v in self.cells.items() if c == 1 and v == event_id)
 
@@ -252,8 +303,11 @@ class FakeSheets(FakeVendor):
         return Response(json.dumps({"access_token": token, "expires_in": TOKEN_TTL_S, "token_type": "Bearer"}), status=200, mimetype="application/json")
 
     # ---- the values endpoints ---------------------------------------------------------------------------------------------------
-    def _google_error(self, status: int, message: str, reason: str) -> Response:
-        return Response(json.dumps({"error": {"code": status, "message": message, "status": reason}}), status=status, mimetype="application/json")
+    def _google_error(self, status: int, message: str, reason: str, details: list[dict[str, Any]] | None = None) -> Response:
+        err: dict[str, Any] = {"code": status, "message": message, "status": reason}
+        if details:
+            err["details"] = details
+        return Response(json.dumps({"error": err}), status=status, content_type="application/json; charset=UTF-8")
 
     def _authorised(self, request: Request) -> bool:
         auth = request.headers.get("Authorization", "")
@@ -266,7 +320,7 @@ class FakeSheets(FakeVendor):
         with self.lock:
             table = self.detect(rect)
             if table is not None:
-                table_range = f"{self.sheet}!{col_letters(table[1])}{table[0]}:{col_letters(table[3])}{table[2]}"
+                table_range = f"{self.sheet}!{a1(table[0], table[1], table[2], table[3])}"
                 r, c0 = table[2] + 1, table[1]
             else:
                 table_range = ""
@@ -277,7 +331,7 @@ class FakeSheets(FakeVendor):
                 if input_option == "USER_ENTERED" and isinstance(v, str) and v.startswith("="):
                     v = "#FORMULA"  # a USER_ENTERED "=1+2" becomes a formula, not the text that was sent
                 self.cells[(r, c0 + j)] = v
-            updated = f"{self.sheet}!{col_letters(c0)}{r}:{col_letters(c0 + max(len(row) - 1, 0))}{r}"
+            updated = f"{self.sheet}!{a1(r, c0, r, c0 + max(len(row) - 1, 0))}"
             self.effects += 1
             self.committed.set()
         return table_range, updated
@@ -289,7 +343,11 @@ class FakeSheets(FakeVendor):
         rng = unquote(tail[: -len(":append")] if is_append else tail)
         if not self._authorised(request):
             self.record(request, parsed, mode, False)
-            return self._google_error(401, "Request had invalid authentication credentials.", "UNAUTHENTICATED")
+            if not request.headers.get("Authorization"):
+                if request.method == "GET":  # observed: an anonymous read is a 403, an anonymous write a 401
+                    return self._google_error(403, "Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API.", "PERMISSION_DENIED")
+                return self._google_error(401, "Request is missing required authentication credential. " + AUTH_HINT, "UNAUTHENTICATED")
+            return self._google_error(401, "Request had invalid authentication credentials. " + AUTH_HINT, "UNAUTHENTICATED")
         if mode == "forbidden":
             self.record(request, parsed, mode, False)
             return self._google_error(403, "The caller does not have permission", "PERMISSION_DENIED")
@@ -298,7 +356,7 @@ class FakeSheets(FakeVendor):
             return self._google_error(404, "Requested entity was not found.", "NOT_FOUND")
         if mode == "rate_limit":
             self.record(request, parsed, mode, False)
-            return self._google_error(429, "Quota exceeded for quota metric 'Write requests'", "RESOURCE_EXHAUSTED")
+            return self._google_error(429, QUOTA_MESSAGE, "RESOURCE_EXHAUSTED", details=QUOTA_DETAILS)  # observed: no Retry-After header
         if mode == "server_error" and not is_append:
             self.record(request, parsed, mode, False)
             return self._google_error(500, "Internal error encountered.", "INTERNAL")
@@ -310,23 +368,38 @@ class FakeSheets(FakeVendor):
         if mode == "bad_range" or (sheet is not None and sheet != self.sheet):
             self.record(request, parsed, mode, False)
             return self._google_error(400, "Unable to parse range: " + rng, "INVALID_ARGUMENT")
+        if mode == "bad_request":  # a 400 that is not about the range: observed text for a body the API cannot parse
+            self.record(request, parsed, mode, False)
+            return self._google_error(400, "Invalid JSON payload received. Unexpected end of string. Expected a value or ] within an array.\n\n^", "INVALID_ARGUMENT")
         if not is_append:
             self.record(request, parsed, mode, False)
-            col = rect[1] if rect else 1
-            values = [[v] for v in self.column_values(col)] if rect is None or rect[1] == rect[3] else [self.row_values(r) for r in range(rect[0], min(rect[2], max((r for r, _ in self.cells), default=0)) + 1)]
-            body: dict[str, Any] = {"range": rng, "majorDimension": "ROWS"}
+            expanded, values = self.read_rows(rect)
+            body: dict[str, Any] = {"range": f"{self.sheet}!{expanded}", "majorDimension": "ROWS"}
             if values:
                 body["values"] = values
-            return Response(json.dumps(body), status=200, mimetype="application/json")
+            return Response(json.dumps(body), status=200, content_type="application/json; charset=UTF-8")
 
         option = request.args.get("valueInputOption")
-        if "raw" in self.rules and option not in ("RAW", "USER_ENTERED"):
+        if "raw" in self.rules and option is None:
             self.record(request, parsed, mode, False)
             return self._google_error(400, "'valueInputOption' is required but not specified", "INVALID_ARGUMENT")
-        if not isinstance(parsed, dict) or not isinstance(parsed.get("values"), list) or not parsed["values"]:
+        if "raw" in self.rules and option not in ("RAW", "USER_ENTERED"):
             self.record(request, parsed, mode, False)
-            return self._google_error(400, "Invalid values", "INVALID_ARGUMENT")
-        row = parsed["values"][0]
+            msg = f"Invalid value at 'value_input_option' (type.googleapis.com/google.apps.sheets.v4.ValueInputOption), \"{option}\""
+            return self._google_error(400, msg, "INVALID_ARGUMENT")
+        values_in = parsed.get("values") if isinstance(parsed, dict) else None
+        if values_in is not None and not (isinstance(values_in, list) and all(isinstance(r, list) for r in values_in)):
+            self.record(request, parsed, mode, False)
+            return self._google_error(400, "Invalid value at 'data.values' (type.googleapis.com/google.protobuf.ListValue)", "INVALID_ARGUMENT")
+        if not values_in:
+            # Observed: `{}` and `{"values": []}` are a 200 that writes nothing, with only the first cell named.
+            self.record(request, parsed, mode, False)
+            nothing = {"spreadsheetId": self.spreadsheet_id, "updates": {"spreadsheetId": self.spreadsheet_id, "updatedRange": f"{self.sheet}!A1"}}
+            return Response(json.dumps(nothing), status=200, content_type="application/json; charset=UTF-8")
+        if "cell_limit" in self.rules and any(isinstance(v, str) and utf16_units(v) > MAX_CELL_UNITS for r in values_in for v in r):
+            self.record(request, parsed, mode, False)
+            return self._google_error(400, CELL_LIMIT_MESSAGE, "INVALID_ARGUMENT")
+        row = values_in[0]
         with self.lock:
             self.append_in_flight += 1
             self.max_in_flight = max(self.max_in_flight, self.append_in_flight)

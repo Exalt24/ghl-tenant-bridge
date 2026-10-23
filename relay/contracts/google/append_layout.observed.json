@@ -1,0 +1,628 @@
+{
+ "provenance": "observed",
+ "observed_on": "2026-10-23",
+ "host": "sheets.googleapis.com, Sheets API v4 REST",
+ "token_kind": "a USER OAuth access token (installed app consent flow), NOT a service account JWT",
+ "target": "a scratch spreadsheet created for this check and trashed the same day; its id is replaced by {spreadsheetId}",
+ "not_covered": "the service account JWT sign-in at oauth2.googleapis.com/token, and the relay's own HTTP client against real Google",
+ "what": "Where the next row lands for a bare tab name versus Tab!A:A. f7_* is the relay's former F7 shape: utm_campaign blank in EVERY row, between utm_source and fbclid. mixed_* has blanks in some rows only.",
+ "scenarios": {
+  "f7_Bare": {
+   "tab": "Bare",
+   "request": "POST .../values/{range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+   "appends": [
+    {
+     "request_range": "Bare",
+     "row": [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-1"
+     ],
+     "status": 200,
+     "tableRange": null,
+     "updatedRange": "Bare!A1:L1",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "Bare!A1:L1",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "Bare",
+     "row": [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     "status": 200,
+     "tableRange": "Bare!L1",
+     "updatedRange": "Bare!L2:W2",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "Bare!L1",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "Bare!L2:W2",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "Bare",
+     "row": [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ],
+     "status": 200,
+     "tableRange": "Bare!W2",
+     "updatedRange": "Bare!W3:AH3",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "Bare!W2",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "Bare!W3:AH3",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    }
+   ],
+   "readback_of_whole_tab": {
+    "range": "Bare!A1:AH1003",
+    "majorDimension": "ROWS",
+    "values": [
+     [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-1"
+     ],
+     [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ]
+    ]
+   }
+  },
+  "f7_ColA": {
+   "tab": "ColA",
+   "request": "POST .../values/{range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+   "appends": [
+    {
+     "request_range": "ColA!A:A",
+     "row": [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-1"
+     ],
+     "status": 200,
+     "tableRange": null,
+     "updatedRange": "ColA!A1:L1",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "ColA!A1:L1",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "ColA!A:A",
+     "row": [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     "status": 200,
+     "tableRange": "ColA!A1:J1",
+     "updatedRange": "ColA!A2:L2",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "ColA!A1:J1",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "ColA!A2:L2",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "ColA!A:A",
+     "row": [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ],
+     "status": 200,
+     "tableRange": "ColA!A1:J2",
+     "updatedRange": "ColA!A3:L3",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "ColA!A1:J2",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "ColA!A3:L3",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    }
+   ],
+   "readback_of_whole_tab": {
+    "range": "ColA!A1:Z1003",
+    "majorDimension": "ROWS",
+    "values": [
+     [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-1"
+     ],
+     [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ]
+    ]
+   }
+  },
+  "mixed_MixBare": {
+   "tab": "MixBare",
+   "request": "POST .../values/{range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+   "appends": [
+    {
+     "request_range": "MixBare",
+     "row": [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "spring",
+      "fbclid-1"
+     ],
+     "status": 200,
+     "tableRange": null,
+     "updatedRange": "MixBare!A1:L1",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixBare!A1:L1",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "MixBare",
+     "row": [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     "status": 200,
+     "tableRange": "MixBare!A1:L1",
+     "updatedRange": "MixBare!A2:L2",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "MixBare!A1:L1",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixBare!A2:L2",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "MixBare",
+     "row": [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ],
+     "status": 200,
+     "tableRange": "MixBare!A1:L2",
+     "updatedRange": "MixBare!A3:L3",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "MixBare!A1:L2",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixBare!A3:L3",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    }
+   ],
+   "readback_of_whole_tab": {
+    "range": "MixBare!A1:Z1003",
+    "majorDimension": "ROWS",
+    "values": [
+     [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "spring",
+      "fbclid-1"
+     ],
+     [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ]
+    ]
+   }
+  },
+  "mixed_MixColA": {
+   "tab": "MixColA",
+   "request": "POST .../values/{range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+   "appends": [
+    {
+     "request_range": "MixColA!A:A",
+     "row": [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "spring",
+      "fbclid-1"
+     ],
+     "status": 200,
+     "tableRange": null,
+     "updatedRange": "MixColA!A1:L1",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixColA!A1:L1",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "MixColA!A:A",
+     "row": [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     "status": 200,
+     "tableRange": "MixColA!A1:L1",
+     "updatedRange": "MixColA!A2:L2",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "MixColA!A1:L1",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixColA!A2:L2",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    },
+    {
+     "request_range": "MixColA!A:A",
+     "row": [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ],
+     "status": 200,
+     "tableRange": "MixColA!A1:L2",
+     "updatedRange": "MixColA!A3:L3",
+     "answer": {
+      "spreadsheetId": "{spreadsheetId}",
+      "tableRange": "MixColA!A1:L2",
+      "updates": {
+       "spreadsheetId": "{spreadsheetId}",
+       "updatedRange": "MixColA!A3:L3",
+       "updatedRows": 1,
+       "updatedColumns": 12,
+       "updatedCells": 12
+      }
+     }
+    }
+   ],
+   "readback_of_whole_tab": {
+    "range": "MixColA!A1:Z1003",
+    "majorDimension": "ROWS",
+    "values": [
+     [
+      "evt-1",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 1",
+      "t1@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "spring",
+      "fbclid-1"
+     ],
+     [
+      "evt-2",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 2",
+      "t2@example.test",
+      "",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-2"
+     ],
+     [
+      "evt-3",
+      "2026-10-23 08:00:00",
+      "lead.created",
+      "Test 3",
+      "t3@example.test",
+      "+63 900 000 0000",
+      "Cebu",
+      "PH-CEB",
+      "facebook",
+      "fb",
+      "",
+      "fbclid-3"
+     ]
+    ]
+   }
+  }
+ }
+}

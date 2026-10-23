@@ -1,5 +1,5 @@
 """Google Sheets sink: a service account signs a JWT, trades it for an access token, and appends one row per event.
-Contract: contracts/google/SOURCE.md (pages retrieved 2026-10-22, RFC 7523 for the grant type).
+Contract: contracts/google/SOURCE.md (pages retrieved 2026-10-22, RFC 7523 for the grant type, real API answers observed 2026-10-23).
 
 A Sheets append has no idempotency key, so a send that ends in a 5xx or a timeout is AMBIGUOUS: the row may be there.
 Three things make a duplicate row rare, and the rest is stated in the README as at least once:
@@ -10,14 +10,18 @@ Three things make a duplicate row rare, and the rest is stated in the README as 
      docs say nothing we saved about when a slow append lands.
   3. One append in flight per spreadsheet across processes (a Postgres advisory lock, a lock row on SQLite).
 
-Where a status code's meaning rests on the generic Google error format and not on a saved page it is marked ASSUMED: the
-troubleshooting page lists only 400, 500 and 503, so 401, 403 and 404 below are ASSUMED. The 429 backoff formula is not.
-Concurrent appends to one sheet: not found, the concurrent-edits page was not retrieved.
+Observed on 2026-10-23 against the real Sheets API with a USER OAuth token on a scratch spreadsheet (contracts/google/*.observed.json,
+NOT with a service account JWT): 404 "Requested entity was not found." for an unknown id, 401 UNAUTHENTICATED for a wrong bearer,
+400 "Unable to parse range" for a missing tab, 403 PERMISSION_DENIED for a write to a sheet the caller may only read, a 429
+RESOURCE_EXHAUSTED with no Retry-After header that cleared 48 seconds later, and a cell limit counted in UTF-16 code units.
+Still ASSUMED: what a PRIVATE sheet that is not shared with the service account answers (403 here is only the view-only case),
+and that one refreshed token heals a 401. The 429 backoff formula is documented. Concurrent appends to one sheet: not found.
 
 The append names column A as its range (`Sheet1!A:A`), not the bare sheet. The page says the range is searched for a logical
 table and the row goes after that table's last row at its first column. Column A always holds the event id, so it is never
 empty, and the table found there is the relay's own: a column that is empty in every row further right (a lead that never
-carries utm_campaign) can no longer split the table and send the next row to another column.
+carries utm_campaign) can no longer split the table and send the next row to another column. Observed: with the bare sheet name
+the second row of that shape landed at L2:W2 and the third at W3:AH3, with `Sheet1!A:A` they landed at A2 and A3.
 """
 
 from __future__ import annotations
@@ -46,7 +50,7 @@ MAX_JWT_LIFETIME_S = 65 * 60  # Google rejects an exp more than 65 minutes after
 TOKEN_REFRESH_MARGIN_S = 300
 ABSENT_AFTER_S = 60.0
 LOCK_RETRY_S = 2.0
-MAX_CELL_CHARS = 49_000
+MAX_CELL_CHARS = 49_000  # UTF-16 code units, not Python characters: the real limit of 50,000 is counted in units (observed)
 MAX_429_WAIT_S = 32.0
 SHEET_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")
 TABLE_RANGE_RE = re.compile(r"^(?:'[^']*'|[^!]*)!\$?([A-Z]{1,3})\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$")
@@ -138,6 +142,20 @@ def backoff_429(retries: int, rng: random.Random) -> float:
     return min(2 ** min(max(retries, 0), 10) + rng.random(), MAX_429_WAIT_S)
 
 
+def cut_units(text: str, limit: int) -> str:
+    """The longest start of `text` that is at most `limit` UTF-16 code units long and never ends inside an emoji. Sheets
+    counts a cell in UTF-16 units (observed): a character above U+FFFF counts twice, so a cut by Python characters let
+    through up to twice the limit and the whole append was refused with a 400."""
+    if len(text) <= limit // 2 or text.isascii() and len(text) <= limit:
+        return text
+    units = 0
+    for i, ch in enumerate(text):
+        units += 2 if ord(ch) > 0xFFFF else 1
+        if units > limit:
+            return text[:i]
+    return text
+
+
 def table_start_column(table_range: Any) -> str | None:
     """The first column letter of the `tableRange` an append answers with ("Sheet1!A1:D5" gives "A"), None when empty."""
     if not isinstance(table_range, str) or not table_range:
@@ -207,12 +225,13 @@ class SheetsSink(Sink):
     # ---- the row ----------------------------------------------------------------------------------------------------------
     @staticmethod
     def row_for(event: Event, columns: list[str]) -> list[str]:
-        """One string per configured column. A cell is cut to 49,000 characters (the cell limit is 50,000) and sent RAW, so
-        a value that starts with `=` stays text."""
+        """One string per configured column. A cell is cut to 49,000 UTF-16 code units (the cell limit is 50,000 units, as
+        observed on 2026-10-23: 49,000 emoji, which are 98,000 units, made Sheets refuse the whole append) and sent RAW, so a
+        value that starts with `=` stays text."""
         row: list[str] = []
         for col in columns:
             value = COLUMNS[col](event)
-            row.append("" if value is None else str(value)[:MAX_CELL_CHARS])
+            row.append("" if value is None else cut_units(str(value), MAX_CELL_CHARS))
         return row
 
     # ---- the token ---------------------------------------------------------------------------------------------------------
@@ -376,11 +395,15 @@ class SheetsSink(Sink):
             return Outcome.retry(after_s=backoff_429(ctx.retries, self.rng), status=status, reason="rate limited", rate_limited=True)
         if status >= 500:
             return Outcome.ambiguous(status=status, reason=f"http {status}")
-        if status == 403:  # ASSUMED meaning: the sheet is not shared with the service account (a tenant level fault)
+        if status == 403:  # observed for a sheet the caller may read but not edit; a PRIVATE unshared sheet was not observed
             return Outcome.pause("forbidden (403): the sheet is not shared with the service account", status=status)
-        if status == 404:  # ASSUMED meaning: no such spreadsheet
+        if status == 404:  # observed: "Requested entity was not found." for an id that does not exist
             return Outcome.dead("spreadsheet not found (404)", status=status)
-        return Outcome.dead(f"http {status}", status=status)  # 401 after a refreshed token lands here too (ASSUMED)
+        if status == 400 and _is_unparseable_range(res.text):
+            # Observed: a tab that does not exist (renamed or deleted) is a 400 "Unable to parse range: Tab!A:A". Retrying
+            # cannot fix it and every later lead would die the same way, so pause until the tenant fixes the tab name.
+            return Outcome.pause("tab not found (400 unable to parse range): check that options.sheet names a tab of the spreadsheet", status=status)
+        return Outcome.dead(f"http {status}", status=status)  # 401 after a refreshed token lands here too (the refresh is ASSUMED)
 
     def _after_append(self, res: HttpResult, ctx: SinkContext) -> Outcome:
         try:
@@ -397,6 +420,17 @@ class SheetsSink(Sink):
         updates = doc.get("updates")
         ref = updates.get("updatedRange") if isinstance(updates, dict) else None
         return Outcome.done(status=res.status, effect_ref=ref if isinstance(ref, str) and len(ref) <= 100 else None)
+
+
+def _is_unparseable_range(text: str) -> bool:
+    """True for the observed 400 body `{"error": {"status": "INVALID_ARGUMENT", "message": "Unable to parse range: ..."}}`."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return False
+    err = doc.get("error") if isinstance(doc, dict) else None
+    msg = err.get("message") if isinstance(err, dict) else None
+    return isinstance(msg, str) and msg.startswith("Unable to parse range")
 
 
 def _token_error(text: str) -> str | None:

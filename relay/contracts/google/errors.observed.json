@@ -1,0 +1,516 @@
+{
+ "provenance": "observed",
+ "observed_on": "2026-10-23",
+ "host": "sheets.googleapis.com, Sheets API v4 REST",
+ "token_kind": "a USER OAuth access token (installed app consent flow), NOT a service account JWT",
+ "target": "a scratch spreadsheet created for this check and trashed the same day; its id is replaced by {spreadsheetId}",
+ "not_covered": "the service account JWT sign-in at oauth2.googleapis.com/token, and the relay's own HTTP client against real Google",
+ "what": "Error answers of values.append and values.get.",
+ "bad_range_not_a_range": {
+  "range_sent": "Err!not a range",
+  "append": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!not a range",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "get": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!not a range",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  }
+ },
+ "bad_range_dangling_colon": {
+  "range_sent": "Err!A:",
+  "append": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!A:",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "get": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!A:",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  }
+ },
+ "bad_range_far_beyond_grid": {
+  "range_sent": "Err!ZZZ1:ZZZ2",
+  "append": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "spreadsheetId": "{spreadsheetId}",
+    "updates": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updatedRange": "Err!ZZZ1",
+     "updatedRows": 1,
+     "updatedColumns": 1,
+     "updatedCells": 1
+    }
+   }
+  },
+  "get": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "range": "Err!ZZZ1:ZZZ2",
+    "majorDimension": "ROWS",
+    "values": [
+     [
+      "x"
+     ]
+    ]
+   }
+  }
+ },
+ "bad_range_row_zero": {
+  "range_sent": "Err!A0",
+  "append": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!A0",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "get": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: Err!A0",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  }
+ },
+ "bad_range_empty_range_text": {
+  "range_sent": "!!!",
+  "append": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: !!!",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "get": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: !!!",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  }
+ },
+ "missing_tab": {
+  "range_sent": "NoSuchTab!A:A",
+  "append": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: NoSuchTab!A:A",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "get": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Unable to parse range: NoSuchTab!A:A",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  }
+ },
+ "missing_spreadsheet": {
+  "append": {
+   "status": 404,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 404,
+     "message": "Requested entity was not found.",
+     "status": "NOT_FOUND"
+    }
+   }
+  },
+  "get": {
+   "status": 404,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 404,
+     "message": "Requested entity was not found.",
+     "status": "NOT_FOUND"
+    }
+   }
+  }
+ },
+ "short_garbage_id": {
+  "get": {
+   "status": 404,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 404,
+     "message": "Requested entity was not found.",
+     "status": "NOT_FOUND"
+    }
+   }
+  }
+ },
+ "wrong_bearer": {
+  "append": {
+   "status": 401,
+   "headers": {
+    "www-authenticate": "Bearer realm=\"https://accounts.google.com/\", error=\"invalid_token\"",
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 401,
+     "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+     "status": "UNAUTHENTICATED"
+    }
+   }
+  },
+  "get": {
+   "status": 401,
+   "headers": {
+    "www-authenticate": "Bearer realm=\"https://accounts.google.com/\", error=\"invalid_token\"",
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 401,
+     "message": "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+     "status": "UNAUTHENTICATED"
+    }
+   }
+  }
+ },
+ "no_authorization": {
+  "append": {
+   "status": 401,
+   "headers": {
+    "www-authenticate": "Bearer realm=\"https://accounts.google.com/\"",
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 401,
+     "message": "Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.",
+     "status": "UNAUTHENTICATED",
+     "details": [
+      {
+       "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+       "reason": "CREDENTIALS_MISSING",
+       "domain": "googleapis.com",
+       "metadata": {
+        "service": "sheets.googleapis.com",
+        "method": "google.apps.sheets.v4.SpreadsheetsService.AppendValues"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "get": {
+   "status": 403,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 403,
+     "message": "Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API.",
+     "status": "PERMISSION_DENIED"
+    }
+   }
+  }
+ },
+ "rejected_bodies": {
+  "missing_valueInputOption": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "'valueInputOption' is required but not specified",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "bogus_valueInputOption": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid value at 'value_input_option' (type.googleapis.com/google.apps.sheets.v4.ValueInputOption), \"BOGUS\"",
+     "status": "INVALID_ARGUMENT",
+     "details": [
+      {
+       "@type": "type.googleapis.com/google.rpc.BadRequest",
+       "fieldViolations": [
+        {
+         "field": "value_input_option",
+         "description": "Invalid value at 'value_input_option' (type.googleapis.com/google.apps.sheets.v4.ValueInputOption), \"BOGUS\""
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "bogus_insertDataOption": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid value at 'insert_data_option' (type.googleapis.com/google.apps.sheets.v4.InsertDataOption), \"NOPE\"",
+     "status": "INVALID_ARGUMENT",
+     "details": [
+      {
+       "@type": "type.googleapis.com/google.rpc.BadRequest",
+       "fieldViolations": [
+        {
+         "field": "insert_data_option",
+         "description": "Invalid value at 'insert_data_option' (type.googleapis.com/google.apps.sheets.v4.InsertDataOption), \"NOPE\""
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "values_is_a_string": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid value at 'data.values' (type.googleapis.com/google.protobuf.ListValue), \"x\"",
+     "status": "INVALID_ARGUMENT",
+     "details": [
+      {
+       "@type": "type.googleapis.com/google.rpc.BadRequest",
+       "fieldViolations": [
+        {
+         "field": "data.values",
+         "description": "Invalid value at 'data.values' (type.googleapis.com/google.protobuf.ListValue), \"x\""
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "values_flat_list": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid value at 'data.values[0]' (type.googleapis.com/google.protobuf.ListValue), \"a\"\nInvalid value at 'data.values[1]' (type.googleapis.com/google.protobuf.ListValue), \"b\"",
+     "status": "INVALID_ARGUMENT",
+     "details": [
+      {
+       "@type": "type.googleapis.com/google.rpc.BadRequest",
+       "fieldViolations": [
+        {
+         "field": "data.values[0]",
+         "description": "Invalid value at 'data.values[0]' (type.googleapis.com/google.protobuf.ListValue), \"a\""
+        },
+        {
+         "field": "data.values[1]",
+         "description": "Invalid value at 'data.values[1]' (type.googleapis.com/google.protobuf.ListValue), \"b\""
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "invalid_json": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid JSON payload received. Unexpected end of string. Expected a value or ] within an array.\n\n^",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "empty_values_list": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "spreadsheetId": "{spreadsheetId}",
+    "updates": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updatedRange": "Err!A1"
+    }
+   }
+  },
+  "empty_object": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "spreadsheetId": "{spreadsheetId}",
+    "updates": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updatedRange": "Err!A1"
+    }
+   }
+  },
+  "nested_object_cell": {
+   "status": 400,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 400,
+     "message": "Invalid values[0][0]: struct_value \t {\n  fields {\n    key: \"a\"\n    value {\n      number_value: 1.0\n    }\n  }\n}\n",
+     "status": "INVALID_ARGUMENT"
+    }
+   }
+  },
+  "null_cell": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "spreadsheetId": "{spreadsheetId}",
+    "updates": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updatedRange": "Err!A1:B1",
+     "updatedRows": 1,
+     "updatedColumns": 1,
+     "updatedCells": 1
+    }
+   }
+  },
+  "number_cell": {
+   "status": 200,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "spreadsheetId": "{spreadsheetId}",
+    "updates": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updatedRange": "Err!A1:B1",
+     "updatedRows": 1,
+     "updatedColumns": 2,
+     "updatedCells": 2
+    }
+   }
+  }
+ },
+ "view_only_sheet": {
+  "note": "Google's public sample sheet, view only for this account. Only an append with EMPTY values was sent, so nothing could be written. The read used a tab name that sheet does not have, so its 400 says nothing about permissions.",
+  "append_empty_values": {
+   "status": 403,
+   "headers": {
+    "content-type": "application/json; charset=UTF-8"
+   },
+   "body": {
+    "error": {
+     "code": 403,
+     "message": "The caller does not have permission",
+     "status": "PERMISSION_DENIED"
+    }
+   }
+  }
+ }
+}

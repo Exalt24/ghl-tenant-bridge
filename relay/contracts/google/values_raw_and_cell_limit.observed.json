@@ -1,0 +1,304 @@
+{
+ "provenance": "observed",
+ "observed_on": "2026-10-23",
+ "host": "sheets.googleapis.com, Sheets API v4 REST",
+ "token_kind": "a USER OAuth access token (installed app consent flow), NOT a service account JWT",
+ "target": "a scratch spreadsheet created for this check and trashed the same day; its id is replaced by {spreadsheetId}",
+ "not_covered": "the service account JWT sign-in at oauth2.googleapis.com/token, and the relay's own HTTP client against real Google",
+ "what": "RAW keeps formula-looking and apostrophe text as text; the cell length limit and what it counts.",
+ "raw_values_sent": [
+  "=1+2",
+  "'apostrophe",
+  "+5",
+  "@x",
+  "007",
+  "1e3",
+  "2026-10-23",
+  "TRUE",
+  "-3",
+  "=HYPERLINK(\"http://example.test\",\"y\")",
+  " leading space",
+  "line1\nline2",
+  "tab\there",
+  "12345"
+ ],
+ "raw_append_answer": {
+  "spreadsheetId": "{spreadsheetId}",
+  "updates": {
+   "spreadsheetId": "{spreadsheetId}",
+   "updatedRange": "Sheet1!A1:N1",
+   "updatedRows": 1,
+   "updatedColumns": 14,
+   "updatedCells": 14
+  }
+ },
+ "raw_read_back": {
+  "formatted": [
+   [
+    "=1+2",
+    "'apostrophe",
+    "+5",
+    "@x",
+    "007",
+    "1e3",
+    "2026-10-23",
+    "TRUE",
+    "-3",
+    "=HYPERLINK(\"http://example.test\",\"y\")",
+    " leading space",
+    "line1\nline2",
+    "tab\there",
+    "12345"
+   ]
+  ],
+  "formula": [
+   [
+    "=1+2",
+    "'apostrophe",
+    "+5",
+    "@x",
+    "007",
+    "1e3",
+    "2026-10-23",
+    "TRUE",
+    "-3",
+    "=HYPERLINK(\"http://example.test\",\"y\")",
+    " leading space",
+    "line1\nline2",
+    "tab\there",
+    "12345"
+   ]
+  ],
+  "unformatted": [
+   [
+    "=1+2",
+    "'apostrophe",
+    "+5",
+    "@x",
+    "007",
+    "1e3",
+    "2026-10-23",
+    "TRUE",
+    "-3",
+    "=HYPERLINK(\"http://example.test\",\"y\")",
+    " leading space",
+    "line1\nline2",
+    "tab\there",
+    "12345"
+   ]
+  ]
+ },
+ "contrast_user_entered": {
+  "values_sent": [
+   "=1+2",
+   "'apostrophe",
+   "007"
+  ],
+  "formatted": [
+   [
+    "3",
+    "apostrophe",
+    "7"
+   ]
+  ],
+  "formula": [
+   [
+    "=1+2",
+    "apostrophe",
+    7
+   ]
+  ]
+ },
+ "cell_limit": {
+  "finding": "A cell over 50,000 UTF-16 code units is refused with 400 INVALID_ARGUMENT and the WHOLE append writes nothing. An emoji is two units. 50,000 units is accepted, 50,001 is not.",
+  "cases": [
+   {
+    "label": "ascii_49000",
+    "chars_sent": 49000,
+    "utf16_units_sent": 49000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A1",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "ascii_50000",
+    "chars_sent": 50000,
+    "utf16_units_sent": 50000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A2",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "ascii_50001",
+    "chars_sent": 50001,
+    "utf16_units_sent": 50001,
+    "status": 400,
+    "answer": {
+     "error": {
+      "code": 400,
+      "message": "Your input contains more than the maximum of 50000 characters in a single cell.",
+      "status": "INVALID_ARGUMENT"
+     }
+    }
+   },
+   {
+    "label": "ascii_100000",
+    "chars_sent": 100000,
+    "utf16_units_sent": 100000,
+    "status": 400,
+    "answer": {
+     "error": {
+      "code": 400,
+      "message": "Your input contains more than the maximum of 50000 characters in a single cell.",
+      "status": "INVALID_ARGUMENT"
+     }
+    }
+   },
+   {
+    "label": "astral_49000_codepoints",
+    "chars_sent": 49000,
+    "utf16_units_sent": 98000,
+    "status": 400,
+    "answer": {
+     "error": {
+      "code": 400,
+      "message": "Your input contains more than the maximum of 50000 characters in a single cell.",
+      "status": "INVALID_ARGUMENT"
+     }
+    }
+   },
+   {
+    "label": "astral_25001_codepoints",
+    "chars_sent": 25001,
+    "utf16_units_sent": 50002,
+    "status": 400,
+    "answer": {
+     "error": {
+      "code": 400,
+      "message": "Your input contains more than the maximum of 50000 characters in a single cell.",
+      "status": "INVALID_ARGUMENT"
+     }
+    }
+   },
+   {
+    "label": "two_byte_e_acute_49000",
+    "chars_sent": 49000,
+    "utf16_units_sent": 49000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1:A2",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A3",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "two_byte_e_acute_50000",
+    "chars_sent": 50000,
+    "utf16_units_sent": 50000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1:A3",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A4",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "astral_25000_codepoints",
+    "chars_sent": 25000,
+    "utf16_units_sent": 50000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1:A4",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A5",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "astral_24999_plus_a",
+    "chars_sent": 25000,
+    "utf16_units_sent": 49999,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1:A5",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A6",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "bmp_cjk_50000",
+    "chars_sent": 50000,
+    "utf16_units_sent": 50000,
+    "status": 200,
+    "answer": {
+     "spreadsheetId": "{spreadsheetId}",
+     "tableRange": "Big!A1:A6",
+     "updates": {
+      "spreadsheetId": "{spreadsheetId}",
+      "updatedRange": "Big!A7",
+      "updatedRows": 1,
+      "updatedColumns": 1,
+      "updatedCells": 1
+     }
+    }
+   },
+   {
+    "label": "bmp_cjk_50001",
+    "chars_sent": 50001,
+    "utf16_units_sent": 50001,
+    "status": 400,
+    "answer": {
+     "error": {
+      "code": 400,
+      "message": "Your input contains more than the maximum of 50000 characters in a single cell.",
+      "status": "INVALID_ARGUMENT"
+     }
+    }
+   }
+  ],
+  "readback_lengths_of_the_two_ascii_cells_that_landed_first": [
+   49000,
+   50000
+  ]
+ }
+}

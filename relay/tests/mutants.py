@@ -98,6 +98,7 @@ T_SEC = ["tests/test_secrets.py", "tests/test_redact.py"]
 T_ATTR = ["tests/test_attribution.py"]
 T_CAPI = ["tests/test_capi.py"]
 T_SHEETS = ["tests/test_sheets.py"]
+T_SHEETS_OBS = ["tests/test_sheets_observed.py"]
 T_ROUTE = ["tests/test_ghl_route.py"]
 T_STORE2 = ["tests/test_store_tier2.py"]
 T_CONTRACTS = ["tests/test_contracts.py"]
@@ -495,7 +496,7 @@ MUTANTS: list[Mutant] = [
     M("Sheets 429 is not marked rate limited", SHT, ('Outcome.retry(after_s=backoff_429(ctx.retries, self.rng), status=status, reason="rate limited", rate_limited=True)', 'Outcome.retry(after_s=backoff_429(ctx.retries, self.rng), status=status, reason="rate limited")'), tests=T_SHEETS),
     M("Sheets 5xx is dead instead of ambiguous", SHT, ('        if status >= 500:\n            return Outcome.ambiguous(status=status, reason=f"http {status}")', '        if status >= 500:\n            return Outcome.dead(f"http {status}", status=status)'), tests=T_SHEETS),
     M("Sheets timeout is dead instead of ambiguous", SHT, ("        except (HttpTimeout, HttpFailure) as exc:\n            return Outcome.ambiguous(reason=exc.kind)", "        except (HttpTimeout, HttpFailure) as exc:\n            return Outcome.dead(exc.kind)"), tests=T_SHEETS),
-    M("Sheets 403 is not a pause", SHT, ("        if status == 403:  # ASSUMED meaning: the sheet is not shared with the service account (a tenant level fault)", "        if False:  # ASSUMED meaning: the sheet is not shared with the service account (a tenant level fault)"), tests=T_SHEETS),
+    M("Sheets 403 is not a pause", SHT, ("        if status == 403:  # observed for a sheet the caller may read but not edit", "        if False:  # observed for a sheet the caller may read but not edit"), tests=T_SHEETS),
     M("Sheets 404 is a pause instead of dead", SHT, ('            return Outcome.dead("spreadsheet not found (404)", status=status)', '            return Outcome.pause("spreadsheet not found (404)", status=status)'), tests=T_SHEETS),
     M("Sheets table start is not checked", SHT, ('        if start is not None and start != "A":', "        if False:"), tests=T_SHEETS),
     M("Sheets accepts a table that starts at column B", SHT, ('        if start is not None and start != "A":', '        if start is not None and start not in ("A", "B"):'), tests=T_SHEETS),
@@ -511,7 +512,14 @@ MUTANTS: list[Mutant] = [
     M("Sheets a lost claim still waits sixty seconds", SHT, ("        if ctx.prior_claim_lost:\n            return True\n", "        if False:\n            return True\n"), tests=T_SHEETS),
     M("Sheets does not hold the append lock", SHT, ("            if not got:\n                return Outcome.retry(after_s=LOCK_RETRY_S", "            if False:\n                return Outcome.retry(after_s=LOCK_RETRY_S"), tests=T_SHEETS),
     M("Sheets lock key is shared by every spreadsheet", SHT, ('        with ctx.lock(f"sheets:{sid}", ctx.timeout_s * 4 + 10) as got:', '        with ctx.lock("sheets", ctx.timeout_s * 4 + 10) as got:'), tests=T_SHEETS),
-    M("Sheets cell is not cut to 49000 characters", SHT, ('            row.append("" if value is None else str(value)[:MAX_CELL_CHARS])', '            row.append("" if value is None else str(value))'), tests=T_SHEETS),
+    M("Sheets cell is not cut to 49000 characters", SHT, ('            row.append("" if value is None else cut_units(str(value), MAX_CELL_CHARS))', '            row.append("" if value is None else str(value))'), tests=T_SHEETS),
+    M("Sheets cell is cut by Python characters instead of UTF-16 units", SHT, ('            row.append("" if value is None else cut_units(str(value), MAX_CELL_CHARS))', '            row.append("" if value is None else str(value)[:MAX_CELL_CHARS])'), tests=T_SHEETS_OBS),
+    M("Sheets cut counts an emoji as one unit", SHT, ("        units += 2 if ord(ch) > 0xFFFF else 1", "        units += 1"), tests=T_SHEETS_OBS),
+    M("Sheets cut keeps the emoji that crosses the limit", SHT, ("        if units > limit:\n            return text[:i]", "        if units > limit:\n            return text[:i + 1]"), tests=T_SHEETS_OBS),
+    M("Sheets cut skips every string that is short in characters", SHT, ("    if len(text) <= limit // 2 or text.isascii() and len(text) <= limit:", "    if len(text) <= limit:"), tests=T_SHEETS_OBS),
+    M("Sheets a missing tab is dead instead of paused", SHT, ("        if status == 400 and _is_unparseable_range(res.text):", "        if False:"), tests=T_SHEETS_OBS + T_SHEETS),
+    M("Sheets every 400 pauses the sink", SHT, ("        if status == 400 and _is_unparseable_range(res.text):", "        if status == 400:"), tests=T_SHEETS_OBS + T_SHEETS),
+    M("Sheets any 400 message counts as an unparseable range", SHT, ('    return isinstance(msg, str) and msg.startswith("Unable to parse range")', "    return isinstance(msg, str)"), tests=T_SHEETS_OBS),
     M("Sheets column A may be anything", SHT, ('        if columns[0] != "event_id":', "        if False:"), tests=T_SHEETS),
     M("Sheets accepts a sheet title with a space", SHT, ('SHEET_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")', 'SHEET_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_ ]{0,99}")'), tests=T_SHEETS),
     M("Sheets accepts a sheet title with a quote", SHT, ('SHEET_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")', 'SHEET_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\'\\"]{0,99}")'), tests=T_SHEETS),
@@ -541,8 +549,16 @@ MUTANTS: list[Mutant] = [
     M("fake Sheets: padding in the JWT is accepted", FSHEETS, ('"grant_type", "no_padding", "claims"', '"grant_type", "claims"'), tests=T_SHEETS),
     M("fake Sheets: the claims are not checked", FSHEETS, ('"no_padding", "claims", "lifetime"', '"no_padding", "lifetime"'), tests=T_SHEETS),
     M("fake Sheets: the 65 minute lifetime is not checked", FSHEETS, ('"claims", "lifetime", "clock"', '"claims", "clock"'), tests=T_SHEETS),
-    M("fake Sheets: the clock is not checked", FSHEETS, ('"lifetime", "clock", "raw"}', '"lifetime", "raw"}'), tests=T_SHEETS),
-    M("fake Sheets: valueInputOption is not required", FSHEETS, ('"clock", "raw"}', '"clock"}'), tests=T_SHEETS),
+    M("fake Sheets: the clock is not checked", FSHEETS, ('"lifetime", "clock", "raw", "cell_limit"}', '"lifetime", "raw", "cell_limit"}'), tests=T_SHEETS),
+    M("fake Sheets: valueInputOption is not required", FSHEETS, ('"clock", "raw", "cell_limit"}', '"clock", "cell_limit"}'), tests=T_SHEETS),
+    # ---- observed on 2026-10-23 against the real Sheets API (contracts/google/*.observed.json) -----------------------------------------------
+    M("fake Sheets: the 50,000 unit cell limit is not enforced", FSHEETS, ('"raw", "cell_limit"}', '"raw"}'), tests=T_SHEETS_OBS),
+    M("fake Sheets: the cell limit counts characters instead of UTF-16 units", FSHEETS, ("    return len(text.encode(\"utf-16-le\", \"surrogatepass\")) // 2", "    return len(text)"), tests=T_SHEETS_OBS),
+    M("fake Sheets: a blank cell in a column read is an empty string row", FSHEETS, ("            values.append([self.cells.get((r, c), \"\") for c in range(c1, (max(cols) if cols else c1 - 1) + 1)])", "            values.append([self.cells.get((r, c), \"\") for c in range(c1, (max(cols) if cols else c1) + 1)])"), tests=T_SHEETS_OBS + T_SHEETS),
+    M("fake Sheets: a bare sheet read returns only column A", FSHEETS, ("(1, 1, rows_n, cols_n) if rect is None else", "(1, 1, rows_n, 1) if rect is None else"), tests=T_SHEETS_OBS),
+    M("fake Sheets: an anonymous read is a 401 like an anonymous write", FSHEETS, ('                if request.method == "GET":  # observed', '                if False:  # observed'), tests=T_SHEETS_OBS),
+    M("fake Sheets: the 429 answers with a Retry-After header", FSHEETS, ('details=QUOTA_DETAILS)  # observed: no Retry-After header', 'details=QUOTA_DETAILS).__class__("{}", status=429, headers={"Retry-After": "30"})'), tests=T_SHEETS_OBS),
+    M("fake Sheets: a one cell range is written with a colon", FSHEETS, ('    return first if (r1, c1) == (r2, c2) else f"{first}:{col_letters(c2)}{r2}"', '    return f"{first}:{col_letters(c2)}{r2}"'), tests=T_SHEETS_OBS + T_SHEETS),
     M("fake Sheets: an expired token is accepted", FSHEETS, ("        return expiry is not None and expiry > self.clock()", "        return expiry is not None"), tests=T_SHEETS),
     M("fake Sheets: an append goes to the first table instead of the last", FSHEETS, ("        return max(tables, key=lambda t: (t[2], t[3])) if tables else None", "        return min(tables, key=lambda t: (t[2], t[3])) if tables else None"), tests=T_SHEETS),
     M("fake Sheets: RAW turns an equals sign into a formula", FSHEETS, ('                if input_option == "USER_ENTERED" and isinstance(v, str) and v.startswith("="):', '                if isinstance(v, str) and v.startswith("="):'), tests=T_SHEETS),

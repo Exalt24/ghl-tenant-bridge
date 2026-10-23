@@ -1,0 +1,132 @@
+{
+ "provenance": "observed",
+ "observed_on": "2026-10-23",
+ "host": "sheets.googleapis.com, Sheets API v4 REST",
+ "token_kind": "a USER OAuth access token (installed app consent flow), NOT a service account JWT",
+ "target": "a scratch spreadsheet created for this check and trashed the same day; its id is replaced by {spreadsheetId}",
+ "not_covered": "the service account JWT sign-in at oauth2.googleapis.com/token, and the relay's own HTTP client against real Google",
+ "what": "A tight loop of one cell appends to one tab, stopped at the first 429, then one append every 3 seconds until one succeeded.",
+ "loop": {
+  "sent": 91,
+  "ok_before_first_429": 90,
+  "seconds_to_first_429": 33.62,
+  "statuses_other_than_200_or_429": []
+ },
+ "first_429": {
+  "status": 429,
+  "all_headers": {
+   "vary": "Origin, X-Origin, Referer",
+   "content-type": "application/json; charset=UTF-8",
+   "content-encoding": "gzip",
+   "date": "Fri, 23 Oct 2026 01:27:37 GMT",
+   "server": "ESF",
+   "x-xss-protection": "0",
+   "x-frame-options": "SAMEORIGIN",
+   "x-content-type-options": "nosniff",
+   "alt-svc": "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+   "x-l2-request-path": "l2-managed-6",
+   "transfer-encoding": "chunked"
+  },
+  "body": {
+   "error": {
+    "code": 429,
+    "message": "Quota exceeded for quota metric 'Write requests' and limit 'Write requests per minute per user' of service 'sheets.googleapis.com' for consumer 'project_number:{n}'.",
+    "status": "RESOURCE_EXHAUSTED",
+    "details": [
+     {
+      "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+      "reason": "RATE_LIMIT_EXCEEDED",
+      "domain": "googleapis.com",
+      "metadata": {
+       "quota_location": "global",
+       "quota_limit_value": "60",
+       "consumer": "projects/{n}",
+       "quota_limit": "WriteRequestsPerMinutePerUser",
+       "quota_unit": "1/min/{project}/{user}",
+       "quota_metric": "sheets.googleapis.com/write_requests",
+       "window_start_time": "1792718839",
+       "service": "sheets.googleapis.com"
+      }
+     },
+     {
+      "@type": "type.googleapis.com/google.rpc.Help",
+      "links": [
+       {
+        "description": "Request a higher quota limit.",
+        "url": "https://cloud.google.com/docs/quotas/help/request_increase"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "has_retry_after": false
+ },
+ "recovery": {
+  "probe_every_s": 3,
+  "seconds_until_a_write_succeeded": 48.2,
+  "probes": [
+   {
+    "after_s": 3.0,
+    "status": 429
+   },
+   {
+    "after_s": 6.2,
+    "status": 429
+   },
+   {
+    "after_s": 9.5,
+    "status": 429
+   },
+   {
+    "after_s": 12.7,
+    "status": 429
+   },
+   {
+    "after_s": 15.9,
+    "status": 429
+   },
+   {
+    "after_s": 19.1,
+    "status": 429
+   },
+   {
+    "after_s": 22.4,
+    "status": 429
+   },
+   {
+    "after_s": 25.6,
+    "status": 429
+   },
+   {
+    "after_s": 28.8,
+    "status": 429
+   },
+   {
+    "after_s": 32.0,
+    "status": 429
+   },
+   {
+    "after_s": 35.3,
+    "status": 429
+   },
+   {
+    "after_s": 38.5,
+    "status": 429
+   },
+   {
+    "after_s": 41.7,
+    "status": 429
+   },
+   {
+    "after_s": 44.9,
+    "status": 429
+   },
+   {
+    "after_s": 48.2,
+    "status": 200
+   }
+  ]
+ },
+ "reading": "90 appends were accepted in 33.6 s before the first 429 (the quota says 60 per minute per user). There is NO Retry-After header. The first write that succeeded again came 48.2 s after the 429."
+}

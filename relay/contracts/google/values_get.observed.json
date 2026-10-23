@@ -1,0 +1,165 @@
+{
+ "provenance": "observed",
+ "observed_on": "2026-10-23",
+ "host": "sheets.googleapis.com, Sheets API v4 REST",
+ "token_kind": "a USER OAuth access token (installed app consent flow), NOT a service account JWT",
+ "target": "a scratch spreadsheet created for this check and trashed the same day; its id is replaced by {spreadsheetId}",
+ "not_covered": "the service account JWT sign-in at oauth2.googleapis.com/token, and the relay's own HTTP client against real Google",
+ "what": "values.get as the relay's read-back. Rows are the cells written by a PUT of A1:D8 (listed in `seed_rows`).",
+ "seed_rows": [
+  [
+   "evt-1",
+   "b"
+  ],
+  [
+   "",
+   "only B"
+  ],
+  [
+   "evt-3",
+   "",
+   "",
+   ""
+  ],
+  [
+   "12345",
+   "x"
+  ],
+  [
+   "evt-5",
+   "",
+   "",
+   ""
+  ],
+  [
+   "",
+   "x"
+  ],
+  [
+   "evt-7"
+  ],
+  [
+   "",
+   "y"
+  ]
+ ],
+ "empty_tab_A_colon_A": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+   "range": "Empty!A1:A1000",
+   "majorDimension": "ROWS"
+  }
+ },
+ "empty_tab_bare": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+   "range": "Empty!A1:Z1000",
+   "majorDimension": "ROWS"
+  }
+ },
+ "trail_A_colon_A": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+   "range": "Trail!A1:A1000",
+   "majorDimension": "ROWS",
+   "values": [
+    [
+     "evt-1"
+    ],
+    [],
+    [
+     "evt-3"
+    ],
+    [
+     "12345"
+    ],
+    [
+     "evt-5"
+    ],
+    [],
+    [
+     "evt-7"
+    ]
+   ]
+  }
+ },
+ "trail_bare": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+   "range": "Trail!A1:Z1000",
+   "majorDimension": "ROWS",
+   "values": [
+    [
+     "evt-1",
+     "b"
+    ],
+    [
+     "",
+     "only B"
+    ],
+    [
+     "evt-3"
+    ],
+    [
+     "12345",
+     "x"
+    ],
+    [
+     "evt-5"
+    ],
+    [
+     "",
+     "x"
+    ],
+    [
+     "evt-7"
+    ],
+    [
+     "",
+     "y"
+    ]
+   ]
+  }
+ },
+ "trail_A_colon_A_unformatted": {
+  "status": 200,
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "body": {
+   "range": "Trail!A1:A1000",
+   "majorDimension": "ROWS",
+   "values": [
+    [
+     "evt-1"
+    ],
+    [],
+    [
+     "evt-3"
+    ],
+    [
+     "12345"
+    ],
+    [
+     "evt-5"
+    ],
+    [],
+    [
+     "evt-7"
+    ]
+   ]
+  }
+ }
+}

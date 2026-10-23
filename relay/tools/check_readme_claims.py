@@ -4,8 +4,9 @@
     python tools/check_readme_claims.py            check relay/README.md against relay/contracts/*/SOURCE.md
 
 An integration may be called verified only when its vendor folder has a fixture tagged `observed` (a real captured response).
-Nothing in this repo is `observed`, so every integration is held to the rule, and an integration that has no vendor folder at
-all (reconciliation, Docker, Railway) can never be called verified either.
+Only the Google folder has `observed` fixtures, and those were captured with a user OAuth token, not a service account, so the
+README keeps to the words of what was observed (tests/test_tools.py checks the Google row). Every other integration is held to
+the rule, and an integration that has no vendor folder at all (reconciliation, Docker, Railway) can never be called verified.
 
 The rule is per sentence: a forbidden word is allowed when a negation ("no", "not", "never", "nothing", "without", "none",
 "neither", "nor", or a word ending in n't) comes earlier in the same sentence, as in "no real Slack account was used, so nothing

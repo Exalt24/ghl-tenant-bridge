@@ -28,9 +28,9 @@ from relay.fanout import Hooks
 from relay.http import Http, HttpResult
 from relay.sinks import sheets as sheets_mod
 from relay.sinks.base import AMBIGUOUS, DEAD, DONE, PAUSE, RETRY, Event, SinkContext
-from relay.sinks.sheets import ABSENT_AFTER_S, MAX_CELL_CHARS, SheetsSink, backoff_429, b64url, make_assertion, parse_account, table_start_column
+from relay.sinks.sheets import ABSENT_AFTER_S, MAX_CELL_CHARS, SheetsSink, _is_unparseable_range, backoff_429, b64url, cut_units, make_assertion, parse_account, table_start_column
 
-from .fakes.sheets import GRANT_TYPE, SCOPE, SPREADSHEET_ID, FakeSheets, col_letters, col_num, service_account_json
+from .fakes.sheets import GRANT_TYPE, SCOPE, SPREADSHEET_ID, FakeSheets, col_letters, col_num, service_account_json, utf16_units
 from .helpers import SimulatedCrash, ingest_one, make_cfg, make_rig, payload, wait_for
 
 CONTRACTS = Path(__file__).resolve().parents[1] / "contracts" / "google"
@@ -178,7 +178,7 @@ def test_the_read_back_returns_the_column_without_trailing_empties_and_no_values
     token = token_for(sheets, rsa_key)
     url = f"{sheets.url}/v4/spreadsheets/{SPREADSHEET_ID}/values/Sheet1!A:A"
     headers = {"Authorization": f"Bearer {token}"}
-    assert httpx.get(url, headers=headers).json() == {"range": "Sheet1!A:A", "majorDimension": "ROWS"}
+    assert httpx.get(url, headers=headers).json() == {"range": "Sheet1!A1:A1000", "majorDimension": "ROWS"}  # observed: the range is expanded
     append_raw(sheets, token, row=["one"])
     append_raw(sheets, token, row=["two"])
     assert httpx.get(url, headers=headers).json()["values"] == [["one"], ["two"]]
@@ -375,7 +375,7 @@ def test_outcomes_by_vendor_behaviour(sheets, sa_json, store):
     sink, http, ctx = fixed(sheets, store, sa_json)
     cases = [
         ("rate_limit", RETRY), ("server_error", AMBIGUOUS), ("act_then_fail", AMBIGUOUS), ("forbidden", PAUSE),
-        ("notfound", DEAD), ("bad_range", DEAD),
+        ("notfound", DEAD), ("bad_range", PAUSE), ("bad_request", DEAD),
     ]
     for i, (mode, want) in enumerate(cases):
         assert sink.send(make_event(event_id=f"ok{i}"), http, ctx).kind == DONE  # positive control before every refusal
@@ -420,7 +420,7 @@ def test_a_5xx_and_a_timeout_are_ambiguous_and_a_refused_connection_is_a_retry(s
 def test_a_secret_never_appears_in_an_outcome(sheets, sa_json, store, rsa_key):
     sink, http, ctx = fixed(sheets, store, sa_json)
     pem_line = json.loads(sa_json)["private_key"].splitlines()[1]
-    for mode in ("rate_limit", "server_error", "forbidden", "notfound", "bad_range"):
+    for mode in ("rate_limit", "server_error", "forbidden", "notfound", "bad_range", "bad_request"):
         sheets.queue(mode)
         out = sink.send(make_event(event_id=f"e-{mode}"), http, ctx)
         text = f"{out.reason} {out.kind} {out.status}"
@@ -823,7 +823,8 @@ def test_the_append_fixture_matches_the_sink():
 
 def test_the_statuses_fixture_says_which_codes_are_assumed():
     doc = json.loads((CONTRACTS / "statuses.assumed.json").read_text(encoding="utf-8"))
-    assert set(doc["assumed"]) == {"401", "403", "404"} and "429" in doc["documented"] and doc["provenance"].startswith("ASSUMED")
+    assert set(doc["assumed"]) == {"401", "403"} and "429" in doc["documented"] and doc["provenance"].startswith("ASSUMED")
+    assert set(doc["observed_2026_10_23"]) == {"400", "401", "403", "404", "429"}  # what moved out of ASSUMED, each backed by errors.observed.json
 
 
 def test_parse_account_never_puts_key_material_in_its_errors(rsa_key):

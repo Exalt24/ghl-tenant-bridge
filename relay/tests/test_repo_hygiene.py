@@ -185,7 +185,11 @@ def test_every_integration_is_built_and_each_row_says_what_ran_and_what_did_not(
     for name, cells in rows.items():
         assert "NOT BUILT YET" not in " ".join(cells), name
     for name in ("Slack", "Make", "Meta Conversions API", "Google Sheets", "Meta Insights", "Windsor.ai", "Fathom"):
-        assert rows[name][3].startswith("doc:") and "observed" not in rows[name][3].lower(), name
+        assert rows[name][3].startswith("doc:"), name
+        if name == "Google Sheets":  # the one integration with real captured answers, said exactly
+            assert "Observed 2026-10-23 with a user token, not a service account" in rows[name][3], name
+        else:
+            assert "observed" not in rows[name][3].lower(), name
         assert "No real" in rows[name][2], name  # the "what did not" cell names the real account that was never used
         assert "ASSUMED" in " ".join(rows[name]) or name in ("Slack",), name  # a doc only integration names what is assumed
     assert "Not deployed" in rows["Railway"][1] or "not deployed" in rows["Railway"][1]

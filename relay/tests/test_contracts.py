@@ -1,5 +1,6 @@
 """The contracts folders: every vendor has a SOURCE.md, every fixture is named in it and carries a provenance tag, and the
-HighLevel fixtures behave as the code expects. Nothing is `observed`, because nothing here ran against a real vendor."""
+HighLevel fixtures behave as the code expects. Only the Google folder has `observed` fixtures (the real Sheets API, 2026-10-23,
+a user OAuth token on a scratch spreadsheet); every other vendor is `doc` or ASSUMED, because nothing else ran against a real vendor."""
 
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from relay.sinks import registry
 CONTRACTS = Path(__file__).resolve().parents[1] / "contracts"
 VENDORS = ["slack", "make", "meta", "google", "ghl", "windsor", "fathom"]
 TAGS = (".doc.", ".assumed.", ".rfc7523.")
+OBSERVED_VENDORS = {"google"}  # the only vendor with fixtures captured from the real API (2026-10-23, user OAuth token, scratch sheet)
 
 
 def raw(obj) -> bytes:
@@ -25,13 +27,18 @@ def test_every_vendor_folder_has_a_source_file_and_nothing_else_is_unlisted():
     assert sorted(p.name for p in CONTRACTS.iterdir() if p.is_dir()) == sorted(VENDORS)
     for vendor in VENDORS:
         source = (CONTRACTS / vendor / "SOURCE.md").read_text(encoding="utf-8")
-        assert "Retrieved 2026-10-22" in source and "no fixture is `observed`" in source, vendor
+        assert "Retrieved 2026-10-22" in source, vendor
+        if vendor in OBSERVED_VENDORS:
+            # Said exactly: observed with a USER token on a scratch sheet, and what was NOT observed.
+            assert "2026-10-23" in source and "USER OAuth" in source and "NOT observed" in source and "service account JWT sign-in" in source, vendor
+        else:
+            assert "no fixture is `observed`" in source, vendor
         fixtures = sorted(p.name for p in (CONTRACTS / vendor).glob("*.json"))
         assert fixtures, vendor
         for name in fixtures:
             assert f"`{name}`" in source, f"{vendor}/{name} is not named in SOURCE.md"
-            assert any(tag in name for tag in TAGS), f"{vendor}/{name} carries no provenance tag in its name"
-            assert ".observed." not in name
+            assert any(tag in name for tag in TAGS) or (vendor in OBSERVED_VENDORS and ".observed." in name), f"{vendor}/{name} carries no provenance tag in its name"
+            assert vendor in OBSERVED_VENDORS or ".observed." not in name
 
 
 def test_every_fixture_is_valid_json_and_the_source_tables_use_only_the_three_provenance_words():
@@ -43,7 +50,9 @@ def test_every_fixture_is_valid_json_and_the_source_tables_use_only_the_three_pr
         assert rows, vendor
         for row in rows:
             provenance = row.split("|")[2].strip()
-            assert re.match(r"^(doc|ASSUMED)\b", provenance), (vendor, row[:60])
+            assert re.match(r"^(doc|ASSUMED|observed 2026-10-23, user OAuth token, scratch spreadsheet$)", provenance), (vendor, row[:60])
+            if provenance.startswith("observed"):
+                assert vendor in OBSERVED_VENDORS and ".observed." in row.split("|")[1], row[:60]
 
 
 def test_the_assumed_fixtures_say_what_would_settle_them():

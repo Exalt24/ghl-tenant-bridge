@@ -1,6 +1,13 @@
 {
-  "provenance": "ASSUMED except where a status is named in a saved page",
+  "provenance": "ASSUMED except where a status is named in a saved page, or observed on 2026-10-23 (the observed answers are in errors.observed.json and rate_limit.observed.json)",
   "documented": {"429": "per minute quota exceeded, back off min(2^n + jitter up to 1 second, 32 seconds)", "400": "listed on the troubleshooting page", "500": "listed on the troubleshooting page", "503": "listed on the troubleshooting page"},
-  "assumed": {"401": "invalid or expired credentials: refresh the token once, then dead", "403": "the sheet is not shared with the service account: pause the sink", "404": "no such spreadsheet: dead"},
-  "what_would_settle_it": "one real call against a sheet that is not shared, and one against a missing id"
+  "observed_2026_10_23": {
+    "401": "a wrong bearer token: 401 UNAUTHENTICATED with a WWW-Authenticate header, on both append and get",
+    "404": "an unknown spreadsheet id: 404 NOT_FOUND 'Requested entity was not found.'",
+    "403": "a write to a sheet the caller may only view: 403 PERMISSION_DENIED 'The caller does not have permission'",
+    "400": "a tab that does not exist: 400 INVALID_ARGUMENT 'Unable to parse range: NoSuchTab!A:A'; a cell over 50,000 UTF-16 units: 400 and nothing of the append is written",
+    "429": "RESOURCE_EXHAUSTED with ErrorInfo details, no Retry-After header, cleared 48 seconds after the first one"
+  },
+  "assumed": {"401": "a service account access token that expired mid flight is healed by ONE refreshed token, then dead (the status of a wrong token is observed, the heal is not)", "403": "a PRIVATE spreadsheet that is not shared with the service account answers 403 on a read and an append (only the view-only write was observed)"},
+  "what_would_settle_it": "a service account JWT sign-in against oauth2.googleapis.com/token, then one append to a private sheet that is not shared with it"
 }
