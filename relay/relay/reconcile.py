@@ -28,13 +28,16 @@ as a duplicate and the operator decides. The result does not depend on the order
 
 from __future__ import annotations
 
+import codecs
 import csv
+import io
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .money import MoneyError, check_currency, to_minor_from_text
+from .textsafe import clean_text
 
 __all__ = ["CsvError", "ReconcileError", "Result", "Row", "canonical", "load_csv", "reconcile"]
 
@@ -84,7 +87,8 @@ def canonical(row: Any, where: str = "row") -> Row:
     bucket = row.get("bucket")
     if bucket is not None and not isinstance(bucket, str):
         raise ReconcileError(f"{where}: bucket must be text or absent")
-    return Row(rid.strip(), amount, currency, day, bucket if bucket else None)
+    # A lone half emoji becomes U+FFFD here, so no report built from a row can fail to encode.
+    return Row(clean_text(rid).strip(), amount, currency, day, clean_text(bucket) if bucket else None)
 
 
 @dataclass
@@ -161,6 +165,28 @@ def reconcile(payments: Iterable[Any], ledger: Iterable[Any], *, tolerance_minor
 # ---- the CSV loader --------------------------------------------------------------------------------------------------------------
 
 
+def _read_text(path: str | Path) -> str:
+    """The file as text. Excel saves "CSV (Comma delimited)" as Windows-1252 and "CSV UTF-8" as UTF-8 with a byte order mark,
+    and other tools write UTF-8 without one, so the three are read: UTF-8 first (with or without the mark), then Windows-1252.
+    A file that is neither (or UTF-16, which Excel's "Unicode Text" writes) is a CsvError that names the file and the offset
+    of the first byte each reading refused, never a raw UnicodeDecodeError."""
+    where = Path(path)
+    data = where.read_bytes()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        raise CsvError(f"{where.name}: the file is UTF-16 (byte order mark at offset 0): save it as CSV UTF-8")
+    mark = len(codecs.BOM_UTF8) if data.startswith(codecs.BOM_UTF8) else 0  # offsets below are in the file's own bytes
+    try:
+        return data[mark:].decode("utf-8")
+    except UnicodeDecodeError as utf8:
+        try:
+            return data.decode("cp1252")
+        except UnicodeDecodeError as legacy:
+            raise CsvError(
+                f"{where.name}: not UTF-8 (first bad byte at offset {utf8.start + mark}) and not Windows-1252 "
+                f"(first bad byte at offset {legacy.start}): save it as CSV UTF-8"
+            ) from None
+
+
 def load_csv(
     path: str | Path,
     column_map: Mapping[str, str],
@@ -192,7 +218,7 @@ def load_csv(
         except MoneyError:
             raise CsvError("currency= is not a known ISO 4217 code") from None
 
-    with open(path, encoding="utf-8-sig", newline="") as fh:
+    with io.StringIO(_read_text(path), newline="") as fh:
         reader = csv.reader(fh, delimiter=delimiter)
         try:
             header = [h.strip() for h in next(reader)]

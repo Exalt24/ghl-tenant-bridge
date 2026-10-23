@@ -139,7 +139,7 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
                 store, cfg, tenant=tenant, key=key, basis=ghl.BASIS_NATIVE, source="ingest", payload_json=raw.decode("utf-8")
             )
         except Unrouted as exc:
-            alert_routing(cfg.tenant_for_location(payload.get("locationId")), str(exc))
+            alert_routing(cfg.tenant_for_location(ghl.location_id(payload)), str(exc))
             return _err(503, "unrouted")
         except Exception as exc:
             log.error("ingest failed before commit: %s", type(exc).__name__)
@@ -205,7 +205,7 @@ def create_app(cfg: Config | None = None, deps: Deps | None = None) -> Flask:
         try:
             tenant = fanout.route(cfg, payload)
         except Unrouted as exc:
-            alert_routing(cfg.tenant_for_location(payload.get("locationId")), str(exc))
+            alert_routing(cfg.tenant_for_location(ghl.location_id(payload)), str(exc))
             return _err(503, "unrouted")
         if cfg.tenants[tenant].ghl_timestamp_window and not ghl.timestamp_ok(payload.get("timestamp"), deps.clock() * 1000):
             return _err(401, "timestamp-outside-window")

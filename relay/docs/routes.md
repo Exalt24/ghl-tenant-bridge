@@ -18,7 +18,7 @@ A native `webhookId` dedupes for as long as the row exists. A derived key (workf
 
 ## Outcomes
 
-DONE, RETRY, AMBIGUOUS, DEAD, SKIPPED, and PAUSE for a tenant level fault. A RETRY spends no attempt budget, so a lead dies of age (72 hours) and not of a vendor's rate limit. An AMBIGUOUS try spends the budget of 6, because every one can duplicate. A catch-all turns a sink bug into DEAD on the first occurrence.
+DONE, RETRY, AMBIGUOUS, DEAD, SKIPPED, and PAUSE for a tenant level fault. A RETRY spends no attempt budget, so a lead dies of age (72 hours) and not of a vendor's rate limit. An AMBIGUOUS try spends the budget of 6, because every one can duplicate (a Slack or Make 5xx or timeout, and a Sheets append that ends the same way). The cap stays at 6, so the tries are spread instead of crowded: the wait after the first is 30 minutes, then an hour for each of the next four, with up to 25 percent added and never taken away. The six tries therefore span at least 4.5 hours, and a vendor incident of up to 4 hours ends in a delivered alert and not a dead one; an outage that outlasts all six tries ends the delivery as dead with an alert, and an operator replays it. Why those numbers: the earlier schedule (1 minute doubling to 16 minutes) spent all six tries in about 23 minutes, which an ordinary vendor incident outlasts (the 4 hour target is the relay's own choice, not a figure from a vendor page), and each extra try would be one more possible duplicate post, so the fix is longer waits and not more tries. A RETRY keeps its own schedule (1 minute doubling to 1 hour, with jitter that takes off up to half). A catch-all turns a sink bug into DEAD on the first occurrence.
 
 ## Pulls
 

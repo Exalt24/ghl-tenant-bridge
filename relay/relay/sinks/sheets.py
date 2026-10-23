@@ -133,7 +133,9 @@ def make_assertion(account: Account, now: float) -> str:
 
 def backoff_429(retries: int, rng: random.Random) -> float:
     """The documented formula: min(2^n + a random amount up to 1 second, 32 seconds)."""
-    return min(2 ** max(retries, 0) + rng.random(), MAX_429_WAIT_S)
+    # The exponent is capped: 2 ** 1024 no longer converts to a float, and a rate limit that lasts the better part of a day
+    # (a thousand tries at 32 seconds) made the sink raise OverflowError and kill the lead.
+    return min(2 ** min(max(retries, 0), 10) + rng.random(), MAX_429_WAIT_S)
 
 
 def table_start_column(table_range: Any) -> str | None:

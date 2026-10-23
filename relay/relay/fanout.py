@@ -5,7 +5,8 @@ slow vendor never holds a request open and one sink's failure never touches anot
 
 Retry accounting, the part most easily gotten wrong:
   RETRY      the vendor did not act. Spends NO attempt budget. A lead goes dead only by age (72 h, per sink).
-  AMBIGUOUS  the vendor may have acted. Spends the budget (6), because every try can duplicate.
+  AMBIGUOUS  the vendor may have acted. Spends the budget (6), because every try can duplicate. The tries are spread over
+             at least 4.5 hours (see ambiguous_backoff_s) so an ordinary vendor incident does not spend them.
   PAUSE      a tenant level fault (revoked hook, 403). The lead stays pending, the sink pauses for that tenant.
 """
 
@@ -17,7 +18,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import ghl
+from . import ghl, textsafe
 from .config import Config, SinkCfg
 from .sinks.base import AMBIGUOUS, DEAD, DONE, PAUSE, RETRY, SKIPPED, Event, Outcome, Sink, SinkContext
 from .store.base import Claim, FinishPlan, IngestResult, SqlStore
@@ -27,6 +28,12 @@ log = logging.getLogger("relay.fanout")
 MAX_ATTEMPTS = 6
 BACKOFF_BASE_S = 60.0
 BACKOFF_CAP_S = 3600.0
+# An AMBIGUOUS try may have posted, so its budget stays 6 (every extra try is a possible duplicate). The six tries are
+# spread instead: five waits of at least 30, 60, 60, 60 and 60 minutes, a floor of 4.5 hours, so a vendor incident of up
+# to 4 hours ends in a delivered alert and not a dead one. Jitter only adds time, so the floor holds.
+AMBIGUOUS_BACKOFF_BASE_S = 1800.0
+AMBIGUOUS_BACKOFF_CAP_S = 3600.0
+AMBIGUOUS_JITTER = 0.25
 BREAKER_THRESHOLD = 5
 BREAKER_OPEN_S = 60.0
 LEASE_MIN_S = 300.0
@@ -39,7 +46,7 @@ class Unrouted(Exception):
 
 
 def route(cfg: Config, payload: dict[str, Any]) -> str:
-    tenant = cfg.tenant_for_location(payload.get("locationId"))
+    tenant = cfg.tenant_for_location(ghl.location_id(payload))
     if tenant is None:
         raise Unrouted("unmapped location")
     return tenant
@@ -70,6 +77,13 @@ def backoff_s(n: int, rng: random.Random) -> float:
     """min(60 * 2^n, 3600) seconds, with jitter so a recovered vendor is not hit by every row at the same second."""
     base = min(BACKOFF_BASE_S * (2 ** max(n, 0)), BACKOFF_CAP_S)
     return base / 2 + rng.random() * base / 2
+
+
+def ambiguous_backoff_s(n: int, rng: random.Random) -> float:
+    """The wait after the n-th ambiguous try (n from 0): min(1800 * 2^n, 3600) seconds plus up to 25 percent, never less
+    than the base, so the five waits between six tries total at least 16200 seconds (4.5 hours)."""
+    base = min(AMBIGUOUS_BACKOFF_BASE_S * (2 ** max(n, 0)), AMBIGUOUS_BACKOFF_CAP_S)
+    return base * (1 + AMBIGUOUS_JITTER * rng.random())
 
 
 @dataclass
@@ -128,7 +142,7 @@ def plan_for(outcome: Outcome, claim: Claim, scfg: SinkCfg | None, rng: random.R
             plan.rate_limit_s = plan.delay_s
     elif kind == AMBIGUOUS:
         plan.attempts_inc = 1
-        plan.delay_s = backoff_s(claim.attempts, rng)
+        plan.delay_s = ambiguous_backoff_s(claim.attempts, rng)
     elif kind == PAUSE:
         plan.retries_inc = 1
         pause_s = outcome.pause_s or (scfg.pause_s if scfg else 900.0)
@@ -186,6 +200,7 @@ def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row
         payload = json.loads(event_row["payload"])
     except ValueError:
         return Outcome.dead("stored payload is not JSON"), False
+    textsafe.scrub(payload)  # a lone half emoji becomes U+FFFD before ANY sink sees the payload or the lead built from it
     event = Event(
         event_id=claim.event_id,
         tenant=claim.tenant,

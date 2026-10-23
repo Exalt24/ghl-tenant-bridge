@@ -4,7 +4,8 @@
 expectation (`pass` is an ordinary input the relay must handle, `fail` an input it must refuse or flag), a `why` that states
 the harm, a `source` (`real` was measured against a vendor page, `invented` was made up) and, for an invented case, the
 `promise` it quotes from the spec. Eight cases disagreed with the code when the corpus was written: 16, 44 and 60 were harm
-and are fixed (their tests assert the fixed behaviour), 59 was README text and is fixed, and 25, 26, 28 and 55 are
+and are fixed (their tests assert the fixed behaviour), 59 was README text and is fixed, 28 and 55 were first rated
+KNOWN_LIMIT and are fixed by the second output pass (test_class_blind2.py holds their tables), and 25 and 26 stay
 KNOWN_LIMIT (their tests pin the current behaviour so a change is noticed and decided, not silent). The 52 other cases agreed
 with the code and are covered by the suites named in each module; this file replays the eight.
 
@@ -173,32 +174,26 @@ def test_case_44_backfill_for_sheets_and_make_skips_a_stored_fathom_meeting(stor
     assert [d["sink"] for d in store.deliveries()] == ["slack"]
 
 
-# ---- case 28 and 55: KNOWN_LIMIT, pinned so a change is noticed ----------------------------------------------------------------------
+# ---- case 28 and 55: first rated KNOWN_LIMIT, fixed by the second output pass -----------------------------------------------------------
 
 
-def test_case_28_known_limit_a_lone_surrogate_in_a_name_kills_that_one_lead_and_no_other(store, slack, make):
-    # KNOWN_LIMIT: one lead in a million carries half an emoji (a form cut a character in two). Measured at this commit, the
-    # catch-all records `sink bug: UnicodeEncodeError` on BOTH Slack and Make for that lead (the corpus text says Slack
-    # posted it) and raises an alert, so the person is re-entered by hand. No other lead is touched, and replay fails the same way.
+def test_case_28_a_lone_surrogate_in_a_name_no_longer_kills_any_delivery(store, slack, make):
+    # Fixed: the lone half becomes U+FFFD before any sink sees it (every field and every sink: test_class_blind2.py).
     cfg = make_cfg(slack.url, make.url)
     rig = make_rig(store, cfg)
     r = ingest_one(store, cfg, payload(1, name="Pat \ud83d"))
     ok = ingest_one(store, cfg, payload(2))
     rig.settle()
     states = {(d["event_id"], d["sink"]): (d["state"], d["last_error"]) for d in store.deliveries()}
-    assert states[(r.event_id, "make")] == ("dead", "sink bug: UnicodeEncodeError")
-    assert states[(r.event_id, "slack")] == ("dead", "sink bug: UnicodeEncodeError")
+    assert states[(r.event_id, "make")][0] == "done" and states[(r.event_id, "slack")][0] == "done"
     assert states[(ok.event_id, "make")][0] == "done" and states[(ok.event_id, "slack")][0] == "done"
-    assert any(a["kind"] == "dead" for a in alerts_of(store))
+    assert alerts_of(store) == []
 
 
-def test_case_55_known_limit_a_windows_1252_csv_raises_a_decode_error_the_bookkeeper_can_resave_as_utf8(tmp_path):
-    # KNOWN_LIMIT: an Excel "CSV (Comma delimited)" file is Windows-1252. The loader reads UTF-8 and says so in the error.
+def test_case_55_a_windows_1252_csv_is_read(tmp_path):
+    # Fixed: an Excel "CSV (Comma delimited)" file is Windows-1252 and is read (test_class_blind2.py holds the full table).
     path = tmp_path / "ledger.csv"
     path.write_bytes("id,amount,date,bucket\nl1,10.00,2026-10-01,Café\n".encode("cp1252"))
-    with pytest.raises(UnicodeDecodeError):
-        load_csv(path, {"id": "id", "amount": "amount", "date": "date", "bucket": "bucket"}, currency="USD")
-    path.write_bytes("id,amount,date,bucket\nl1,10.00,2026-10-01,Café\n".encode("utf-8"))
     assert load_csv(path, {"id": "id", "amount": "amount", "date": "date", "bucket": "bucket"}, currency="USD")[0]["bucket"] == "Café"
 
 

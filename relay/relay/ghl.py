@@ -23,6 +23,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from .textsafe import clean_text
+
 # Published by HighLevel for X-GHL-Signature (Webhook Integration Guide). Base64 of the SPKI DER.
 GHL_ED25519_SPKI_B64 = "MCowBQYDK2VwAyEAi2HR1srL4o18O8BRa7gVJY7G7bupbN3H9AwJrHCDiOg="
 
@@ -54,6 +56,35 @@ def _str(v: Any) -> str | None:
     return v if isinstance(v, str) and v else None
 
 
+def unwrap(payload: Any) -> dict[str, Any]:
+    """THE reader of a delivery's shape. The integration guide's envelope wraps the fields in `data`, the per event pages show
+    them flat (ASSUMED which one a live delivery uses), so every place that reads an id, an email or a location out of a raw
+    payload reads it through here. The envelope's own keys win over a field of the same name inside `data`. A body that is not
+    an object reads as empty."""
+    if not isinstance(payload, dict):
+        return {}
+    inner = payload.get("data")
+    if isinstance(inner, dict):
+        return {**inner, **{k: v for k, v in payload.items() if k != "data"}}
+    return payload
+
+
+def opportunity_id(payload: Any) -> str | None:
+    """The id of the opportunity an Opportunity* delivery is about, flat or inside `data`."""
+    return _str(unwrap(payload).get("id"))
+
+
+def appointment_id(payload: Any) -> str | None:
+    """The id of the appointment an Appointment* delivery is about, flat or inside `data`."""
+    inner = unwrap(payload).get("appointment")
+    return _str(inner.get("id")) if isinstance(inner, dict) else None
+
+
+def location_id(payload: Any) -> str | None:
+    """The location a delivery belongs to, which routes it to a tenant."""
+    return _str(unwrap(payload).get("locationId"))
+
+
 def _flat_identity(payload: dict[str, Any]) -> tuple[str | None, str | None]:
     return _str(payload.get("id")), _str(payload.get("dateUpdated")) or _str(payload.get("dateAdded"))
 
@@ -67,6 +98,7 @@ def _appointment_identity(payload: dict[str, Any]) -> tuple[str | None, str | No
 
 def identity_for(payload: dict[str, Any]) -> tuple[str | None, str | None]:
     """(entity id, stamp) by event type, or (None, None) when the type is unknown or the fields are missing."""
+    payload = unwrap(payload)
     kind = payload.get("type")
     if not isinstance(kind, str):
         return None, None
@@ -136,7 +168,7 @@ def _text(v: Any, limit: int = MAX_FIELD_CHARS) -> str | None:
     if isinstance(v, (int, float)):
         return str(v)
     if isinstance(v, str):
-        s = v.strip()
+        s = clean_text(v).strip()  # a lone half emoji becomes U+FFFD here, so no sink is ever handed one
         return s[:limit] if s else None
     return None
 
@@ -154,10 +186,7 @@ def normalise_lead(payload: Any) -> dict[str, Any]:
     sparse one, because one bad lead must never stop the fan-out."""
     if not isinstance(payload, dict):
         return _empty_lead()
-    if isinstance(payload.get("data"), dict):
-        # The integration guide's envelope wraps the fields in `data`, the per event pages show them flat (ASSUMED which
-        # one a live delivery uses). Read either: the envelope's own keys win over a field of the same name inside it.
-        payload = {**payload["data"], **{k: v for k, v in payload.items() if k != "data"}}
+    payload = unwrap(payload)
     inner = payload.get("appointment") if isinstance(payload.get("appointment"), dict) else None
     src = inner if inner is not None else payload
 
@@ -181,7 +210,7 @@ def normalise_lead(payload: Any) -> dict[str, Any]:
             continue
         t = _text(v)
         if t is not None:
-            answers[k] = t
+            answers[clean_text(k)] = t
 
     monetary = payload.get("monetaryValue")
     return {

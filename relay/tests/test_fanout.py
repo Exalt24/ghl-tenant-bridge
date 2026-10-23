@@ -12,7 +12,7 @@ import time
 import pytest
 
 from relay import ghl
-from relay.fanout import MAX_ATTEMPTS, Hooks, Unrouted, backoff_s, ingest, plan_for
+from relay.fanout import MAX_ATTEMPTS, Hooks, Unrouted, ambiguous_backoff_s, backoff_s, ingest, plan_for
 from relay.sinks.base import Outcome
 from relay.sinks.make import MakeSink
 from relay.store.base import Claim
@@ -90,6 +90,25 @@ def test_backoff_is_exponential_capped_and_jittered():
     assert len({backoff_s(3, rng) for _ in range(20)}) > 1  # jitter, not a constant
 
 
+def test_ambiguous_backoff_starts_at_30_minutes_caps_at_an_hour_and_never_shrinks_below_its_base():
+    rng = random.Random(3)
+    for n, base in ((0, 1800), (1, 3600), (2, 3600), (4, 3600), (20, 3600)):
+        for _ in range(50):
+            v = ambiguous_backoff_s(n, rng)
+            assert base <= v <= base * 1.25, (n, v)  # jitter only adds, so the floor below is a guarantee
+    assert len({ambiguous_backoff_s(3, rng) for _ in range(20)}) > 1
+
+
+def test_the_five_waits_between_six_ambiguous_tries_total_at_least_four_hours_whatever_the_jitter():
+    class Lowest:  # the draw that gives the least jitter
+        @staticmethod
+        def random():
+            return 0.0
+
+    floor = sum(ambiguous_backoff_s(n, Lowest()) for n in range(MAX_ATTEMPTS - 1))
+    assert floor >= 4 * 3600 and floor < 72 * 3600
+
+
 def test_plan_retry_spends_no_attempt_and_ambiguous_spends_one(slack, make):
     cfg = make_cfg(slack.url, make.url)
     rng = random.Random(1)
@@ -97,6 +116,8 @@ def test_plan_retry_spends_no_attempt_and_ambiguous_spends_one(slack, make):
     assert (retry.state, retry.attempts_inc, retry.retries_inc, retry.delay_s, retry.rate_limit_s) == ("pending", 0, 1, 7, 7)
     amb = plan_for(Outcome.ambiguous(status=500), claim(attempts=2), scfg(cfg), rng, sent=True)
     assert (amb.state, amb.attempts_inc, amb.retries_inc, amb.breaker) == ("pending", 1, 0, "fail")
+    assert 3600 <= amb.delay_s <= 4500  # the third ambiguous try waits an hour (plus up to 25 percent), not 4 minutes
+    assert plan_for(Outcome.ambiguous(status=500), claim(attempts=0), scfg(cfg), rng, sent=True).delay_s >= 1800
 
 
 def test_plan_ambiguous_goes_dead_when_the_sixth_try_is_spent(slack, make):

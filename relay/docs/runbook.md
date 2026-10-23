@@ -29,4 +29,4 @@ result = reconcile(payments, ledger, tolerance_minor=0, expected_bucket="sales")
 print(result.counts())
 ```
 
-An amount must be a plain decimal string with no more decimals than its currency has. A row the loader refuses is named by its line and column, never by its cell.
+A CSV may be UTF-8 (with or without the byte order mark Excel adds to "CSV UTF-8") or Windows-1252 (what Excel's plain "CSV (Comma delimited)" writes), and the loader reads either. A file that is neither, or UTF-16 (Excel's "Unicode Text"), is refused with an error that names the file and the offset of the first byte it could not read; re-save it as CSV UTF-8. An amount must be a plain decimal string with no more decimals than its currency has. A row the loader refuses is named by its line and column, never by its cell.

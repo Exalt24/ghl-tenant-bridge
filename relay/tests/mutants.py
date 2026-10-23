@@ -79,6 +79,7 @@ PFAT = "relay/pulls/fathom.py"
 PCOM = "relay/pulls/common.py"
 FHOOK = "relay/fathom_hook.py"
 REC = "relay/reconcile.py"
+TXT = "relay/textsafe.py"
 HTTPM = "relay/http.py"
 FADS = "tests/fakes/ads.py"
 FFATH = "tests/fakes/fathom.py"
@@ -117,6 +118,10 @@ T_CONTRACTS3 = ["tests/test_contracts_tier3.py"]
 T_CORPUS = ["tests/test_output_corpus.py"]
 T_CLASS_F3 = ["tests/test_class_tables.py::test_class_f3_a_backfill_gives_each_sink_only_the_sources_it_accepts"]
 T_CLASS_F7 = ["tests/test_class_tables.py::test_class_f7_a_column_that_is_empty_in_every_row_never_splits_the_sheets_table"]
+T_CLASS_B2_F8 = ["tests/test_class_blind2.py::test_class_f8_an_ambiguous_outcome_outlasts_an_ordinary_vendor_incident"]
+T_CLASS_B2_F10 = ["tests/test_class_blind2.py"]
+T_CLASS_B2_F11 = ["tests/test_class_blind2.py"]
+T_CLASS_B2_SURROGATE = ["tests/test_class_blind2.py"]
 
 MUTANTS: list[Mutant] = [
     # ---- ingest and the store ----------------------------------------------------------------------------------------
@@ -330,7 +335,7 @@ MUTANTS: list[Mutant] = [
     M("the timestamp window ignores a future timestamp", GHL, ("    return not (now_ms - sent_ms > MAX_AGE_MS or sent_ms - now_ms > MAX_FUTURE_MS)", "    return not (now_ms - sent_ms > MAX_AGE_MS)"), tests=T_GHL),
     M("a flat attribution key wins over the nested object", GHL,
       ("    sources.append(payload)\n    for field, keys in _ATTR_FLAT.items():", "    sources.insert(0, payload)\n    for field, keys in _ATTR_FLAT.items():"), tests=T_GHL),
-    M("normalise_lead raises on a payload that is not an object", GHL, ("    if not isinstance(payload, dict):\n        return _empty_lead()\n    if isinstance(payload.get(\"data\"), dict):", "    if isinstance(payload.get(\"data\"), dict):"), tests=T_GHL),
+    M("normalise_lead raises on a payload that is not an object", GHL, ("        return _empty_lead()\n    payload = unwrap(payload)", "        raise TypeError(\"not an object\")\n    payload = unwrap(payload)"), tests=T_GHL),
     # ---- redaction -----------------------------------------------------------------------------------------------------------------------
     M("registered secrets are not masked by value", RED, ("    for s in secrets:\n        text = text.replace(s, MASK)\n", ""), tests=T_SEC),
     M("secrets are masked shortest first", RED, ("secrets = sorted(_secrets, key=len, reverse=True)", "secrets = sorted(_secrets, key=len)"), tests=T_SEC),
@@ -396,7 +401,7 @@ MUTANTS: list[Mutant] = [
     M("CAPI event_source_url is sent unsanitised", CAP, ('        url = attribution.sanitise_url(attr.get("page_url"))', '        url = attr.get("page_url")'), tests=T_CAPI),
     M("CAPI event id is not a hash of tenant, entity and name", CAP, ('    return attribution.sha256_hex(f"{event.tenant}|{part}|{name}")', "    return event.event_id"), tests=T_CAPI),
     M("CAPI page event id is ignored", CAP, ("    if isinstance(given, str) and given:\n        return given\n", "    if False:\n        return given\n"), tests=T_CAPI),
-    M("CAPI purchase event id is built from the contact", CAP, ('        value = payload.get("id")\n    elif kind.startswith("Appointment"):', '        value = event.lead.get("contact_id")\n    elif kind.startswith("Appointment"):'), tests=T_CAPI),
+    M("CAPI purchase event id is built from the contact", CAP, ('        value = ghl.opportunity_id(event.payload)  # the same shape reader the lead uses: flat or inside `data`\n    elif kind.startswith("Appointment"):', '        value = event.lead.get("contact_id")\n    elif kind.startswith("Appointment"):'), tests=T_CAPI),
     M("CAPI unmapped event type is not skipped", CAP, ("        if not name:\n            return None, Outcome.skipped(", "        if False:\n            return None, Outcome.skipped("), tests=T_CAPI),
     M("CAPI opportunity that is not won is sent", CAP, ('            if kind.startswith("Opportunity") and (lead.get("status") or "").lower() != "won":', "            if False:"), tests=T_CAPI),
     M("CAPI won status is matched case sensitively", CAP, ('(lead.get("status") or "").lower() != "won"', '(lead.get("status") or "") != "won"'), tests=T_CAPI),
@@ -440,11 +445,11 @@ MUTANTS: list[Mutant] = [
     M("the direct route ignores a native webhook id", APP, ("            key, basis = ghl.derive_key(tenant, payload, raw, native_id=native)", "            key, basis = ghl.derive_key(tenant, payload, raw, native_id=None)"), tests=T_ROUTE),
     M("the direct route trusts an oversized webhook id", APP, ("native = webhook_id if isinstance(webhook_id, str) and 0 < len(webhook_id) <= MAX_KEY_CHARS else None", "native = webhook_id if isinstance(webhook_id, str) and webhook_id else None"), tests=T_ROUTE),
     M("the direct route acknowledges a store failure", APP, ('            log.error("direct webhook ingest failed before commit: %s", type(exc).__name__)\n            return _err(503, "store")', '            log.error("direct webhook ingest failed before commit: %s", type(exc).__name__)\n            return jsonify({"ok": True})'), tests=T_ROUTE),
-    M("the direct route acknowledges an unmapped location", APP, ('            alert_routing(cfg.tenant_for_location(payload.get("locationId")), str(exc))\n            return _err(503, "unrouted")\n        if cfg.tenants[tenant]', '            alert_routing(cfg.tenant_for_location(payload.get("locationId")), str(exc))\n            return jsonify({"ok": True})\n        if cfg.tenants[tenant]'), tests=T_ROUTE),
+    M("the direct route acknowledges an unmapped location", APP, ('            alert_routing(cfg.tenant_for_location(ghl.location_id(payload)), str(exc))\n            return _err(503, "unrouted")\n        if cfg.tenants[tenant]', '            alert_routing(cfg.tenant_for_location(ghl.location_id(payload)), str(exc))\n            return jsonify({"ok": True})\n        if cfg.tenants[tenant]'), tests=T_ROUTE),
     M("the direct route ignores a tenant's timestamp window", APP, ("        if cfg.tenants[tenant].ghl_timestamp_window and not", "        if False and not"), tests=T_ROUTE),
     M("the direct route does not apply its own size cap", APP, ("        raw = read_body(cfg.ghl_webhook_max_body_bytes)", "        raw = read_body(10**9)"), tests=T_ROUTE),
-    M("the envelope shape is not unwrapped", GHL, ('    if isinstance(payload.get("data"), dict):', "    if False:"), tests=T_GHL + T_CONTRACTS),
-    M("a field inside the envelope beats the envelope's own key", GHL, ('        payload = {**payload["data"], **{k: v for k, v in payload.items() if k != "data"}}', '        payload = {**{k: v for k, v in payload.items() if k != "data"}, **payload["data"]}'), tests=T_GHL + T_CONTRACTS),
+    M("the envelope shape is not unwrapped", GHL, ('    if isinstance(inner, dict):\n        return {**inner,', '    if False:\n        return {**inner,'), tests=T_GHL + T_CONTRACTS),
+    M("a field inside the envelope beats the envelope's own key", GHL, ('        return {**inner, **{k: v for k, v in payload.items() if k != "data"}}', '        return {**{k: v for k, v in payload.items() if k != "data"}, **inner}'), tests=T_GHL + T_CONTRACTS),
     # ---- tier 2: store queries ------------------------------------------------------------------------------------------------------------
     M("a claim does not count itself", STORE, ('claim_token = ?, claims = claims + 1 "', 'claim_token = ? "'), tests=T_STORE2),
     M("a lost claim is never noticed", STORE, ('prior_claim_lost=int(row["claims"]) - 1 > int(row["attempts"]) + int(row["retries"]),', "prior_claim_lost=False,"), tests=T_STORE2 + T_SHEETS),
@@ -485,8 +490,8 @@ MUTANTS: list[Mutant] = [
     M("Sheets bearer token is not sent", SHT, ('            headers = {"Authorization": f"Bearer {token}"}', "            headers = {}"), tests=T_SHEETS),
     M("Sheets token refusal is dead instead of a pause", SHT, ('        return Outcome.pause(f"token endpoint refused: http {res.status}" + (f" {code}" if code else ""), status=res.status)', '        return Outcome.dead(f"token endpoint refused: http {res.status}" + (f" {code}" if code else ""), status=res.status)'), tests=T_SHEETS),
     M("Sheets token endpoint 5xx is a pause", SHT, ("        if res.status == 429 or res.status >= 500:", "        if res.status == 429:"), tests=T_SHEETS),
-    M("Sheets 429 backoff has no cap", SHT, ("    return min(2 ** max(retries, 0) + rng.random(), MAX_429_WAIT_S)", "    return 2 ** max(retries, 0) + rng.random()"), tests=T_SHEETS),
-    M("Sheets 429 backoff has no jitter", SHT, ("    return min(2 ** max(retries, 0) + rng.random(), MAX_429_WAIT_S)", "    return min(2 ** max(retries, 0), MAX_429_WAIT_S)"), tests=T_SHEETS),
+    M("Sheets 429 backoff has no cap", SHT, ("    return min(2 ** min(max(retries, 0), 10) + rng.random(), MAX_429_WAIT_S)", "    return 2 ** min(max(retries, 0), 10) + rng.random()"), tests=T_SHEETS),
+    M("Sheets 429 backoff has no jitter", SHT, ("    return min(2 ** min(max(retries, 0), 10) + rng.random(), MAX_429_WAIT_S)", "    return min(2 ** min(max(retries, 0), 10), MAX_429_WAIT_S)"), tests=T_SHEETS),
     M("Sheets 429 is not marked rate limited", SHT, ('Outcome.retry(after_s=backoff_429(ctx.retries, self.rng), status=status, reason="rate limited", rate_limited=True)', 'Outcome.retry(after_s=backoff_429(ctx.retries, self.rng), status=status, reason="rate limited")'), tests=T_SHEETS),
     M("Sheets 5xx is dead instead of ambiguous", SHT, ('        if status >= 500:\n            return Outcome.ambiguous(status=status, reason=f"http {status}")', '        if status >= 500:\n            return Outcome.dead(f"http {status}", status=status)'), tests=T_SHEETS),
     M("Sheets timeout is dead instead of ambiguous", SHT, ("        except (HttpTimeout, HttpFailure) as exc:\n            return Outcome.ambiguous(reason=exc.kind)", "        except (HttpTimeout, HttpFailure) as exc:\n            return Outcome.dead(exc.kind)"), tests=T_SHEETS),
@@ -720,13 +725,13 @@ MUTANTS: list[Mutant] = [
     M("reconcile: the result depends on the order of the rows", REC, ("    for rid in sorted(set(pay) | set(led)):", "    for rid in list(pay) + [k for k in led if k not in pay]:"), tests=T_REC),
     M("reconcile: an id on the payments side only is missing from the payments", REC, ('            out.missing_in_ledger.append({"id": rid, "amount_minor": p.total', '            out.missing_in_payments.append({"id": rid, "amount_minor": p.total'), tests=T_REC),
     M("reconcile: the tolerance may be a float or negative", REC, ("    if isinstance(tolerance_minor, bool) or not isinstance(tolerance_minor, int) or tolerance_minor < 0:", "    if tolerance_minor < 0:"), tests=T_REC),
-    M("reconcile: an id is not trimmed", REC, ("    return Row(rid.strip(), amount, currency, day, bucket if bucket else None)", "    return Row(rid, amount, currency, day, bucket if bucket else None)"), tests=T_REC),
+    M("reconcile: an id is not trimmed", REC, ("clean_text(rid).strip()", "clean_text(rid)"), tests=T_REC),
     M("reconcile: a date that is not an ISO date is accepted", REC, ("        date.fromisoformat(day)\n    except ValueError:", "        pass\n    except ValueError:"), tests=T_REC),
     M("reconcile: an amount may be a fraction of a minor unit in a CSV", REC, ('minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=True)', 'minor = to_minor_from_text(cell("amount"), code, exact=False, allow_negative=True)'), tests=T_REC),
     M("reconcile: a refund with a minus sign is refused in a CSV", REC, ('minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=True)', 'minor = to_minor_from_text(cell("amount"), code, exact=True, allow_negative=False)'), tests=T_REC),
     M("reconcile: an unknown currency in a CSV is not named as such", REC, ("            try:\n                check_currency(code)\n            except MoneyError:", "            try:\n                pass\n            except MoneyError:"), tests=T_REC),
     M("reconcile: a lower case currency in a CSV is refused", REC, ('code = fixed if fixed is not None else cell("currency").upper()', 'code = fixed if fixed is not None else cell("currency")'), tests=T_REC),
-    M("reconcile: a byte order mark breaks the first header", REC, ('with open(path, encoding="utf-8-sig", newline="") as fh:', 'with open(path, encoding="utf-8", newline="") as fh:'), tests=T_REC),
+    M("reconcile: a byte order mark breaks the first header", REC, ('        return data[mark:].decode("utf-8")', '        return data.decode("utf-8")'), tests=T_REC),
     M("reconcile: the column map is ignored", REC, ("            index[canon] = header.index(name)", "            index[canon] = header.index(canon)"), tests=T_REC),
     M("reconcile: a ragged CSV row is read anyway", REC, ("            if len(cells) != len(header):", "            if False:"), tests=T_REC),
     M("reconcile: the date format is ignored", REC, ('day = datetime.strptime(cell("date"), date_format).date().isoformat()', 'day = datetime.strptime(cell("date"), "%Y-%m-%d").date().isoformat()'), tests=T_REC),
@@ -791,6 +796,27 @@ MUTANTS: list[Mutant] = [
     M("F7 the Sheets append searches the whole sheet and not column A", SHT, ("f\"{ex['sheet']}!A:A\"", 'ex["sheet"]'), tests=T_SHEETS + T_CLASS_F7),
     M("F7 the Sheets append searches column B and not column A", SHT, ("f\"{ex['sheet']}!A:A\"", "f\"{ex['sheet']}!B:B\""), tests=T_CLASS_F7),
     M("container smoke: the lead has no tenant to route to", TSMOKE, ('"type": "ContactCreate", "locationId": LOCATION,', '"type": "ContactCreate", "locationId": "NOWHERE",'), tests=T_TOOLS),
+    # ---- second output pass, relay: F8 and F9 an ambiguous budget spent in half an hour, F10 a Purchase counted twice, F11 a Windows-1252 CSV, a lone half emoji ----
+    M("F8 an ambiguous try waits like a retry, minutes and not hours", FAN, ("        plan.delay_s = ambiguous_backoff_s(claim.attempts, rng)", "        plan.delay_s = backoff_s(claim.attempts, rng)"), tests=T_CLASS_B2_F8),
+    M("F8 the ambiguous wait starts at a minute and not at half an hour", FAN, ("AMBIGUOUS_BACKOFF_BASE_S = 1800.0", "AMBIGUOUS_BACKOFF_BASE_S = 60.0"), tests=T_CLASS_B2_F8),
+    M("F8 the ambiguous wait is capped at a minute", FAN, ("AMBIGUOUS_BACKOFF_CAP_S = 3600.0", "AMBIGUOUS_BACKOFF_CAP_S = 60.0"), tests=T_CLASS_B2_F8),
+    M("F8 the ambiguous jitter can shorten the wait below its floor", FAN, ("    return base * (1 + AMBIGUOUS_JITTER * rng.random())", "    return base * (1 - AMBIGUOUS_JITTER * rng.random())"), tests=T_FAN),
+    M("F8 the Sheets rate limit wait overflows after a thousand tries", SHT, ("2 ** min(max(retries, 0), 10)", "2 ** max(retries, 0)"), tests=T_CLASS_B2_F8 + T_SHEETS),
+    M("F10 the Purchase event id reads the opportunity id from the top level only", CAP, ("        value = ghl.opportunity_id(event.payload)  # the same shape reader the lead uses: flat or inside `data`", '        value = event.payload.get("id")'), tests=T_CLASS_B2_F10),
+    M("F10 the Schedule event id reads the appointment id from the top level only", CAP, ("        value = ghl.appointment_id(event.payload)", '        inner = event.payload.get("appointment")\n        value = inner.get("id") if isinstance(inner, dict) else None'), tests=T_CLASS_B2_F10),
+    M("F10 a delivery is routed by the top level location only", FAN, ("cfg.tenant_for_location(ghl.location_id(payload))", 'cfg.tenant_for_location(payload.get("locationId"))'), tests=T_CLASS_B2_F10),
+    M("F10 the delivery key reads the entity from the top level only", GHL, ('    payload = unwrap(payload)\n    kind = payload.get("type")', '    kind = payload.get("type")'), tests=T_CLASS_B2_F10),
+    M("F11 a Windows-1252 CSV is a raw decode error again", REC, ('            return data.decode("cp1252")', "            raise utf8"), tests=T_CLASS_B2_F11),
+    M("F11 the CSV error reports the byte offset of the UTF-8 try as the start of the file", REC, ("(first bad byte at offset {utf8.start + mark})", "(first bad byte at offset {mark})"), tests=T_CLASS_B2_F11),
+    M("F11 the CSV error does not name the file", REC, ('f"{where.name}: not UTF-8 (first bad byte', 'f"not UTF-8 (first bad byte'), tests=T_CLASS_B2_F11),
+    M("F11 a UTF-16 file is read as Windows-1252", REC, ("    if data.startswith((", "    if False and data.startswith(("), tests=T_CLASS_B2_F11),
+    M("S a lone half emoji is not replaced", TXT, ("    return _LONE.sub(REPLACEMENT, text) if not text.isascii() else text", "    return text"), tests=T_CLASS_B2_SURROGATE),
+    M("S the payload the sinks receive is not scrubbed", FAN, ("    textsafe.scrub(payload)", "    None"), tests=T_CLASS_B2_SURROGATE),
+    M("S the scrub leaves dictionary keys alone", TXT, ("                if isinstance(key, str):\n                    fixed", "                if False:\n                    fixed"), tests=T_CLASS_B2_SURROGATE),
+    M("S the canonical lead does not clean its text", GHL, ("        s = clean_text(v).strip()", "        s = v.strip()"), tests=T_CLASS_B2_SURROGATE),
+    M("S the canonical lead does not clean a custom answer key", GHL, ("answers[clean_text(k)] = t", "answers[k] = t"), tests=T_CLASS_B2_SURROGATE),
+    M("S a payment row keeps a lone half in its id", REC, ("clean_text(rid).strip()", "rid.strip()"), tests=T_CLASS_B2_SURROGATE),
+    M("S a payment row keeps a lone half in its bucket", REC, ("clean_text(bucket) if bucket else None", "bucket if bucket else None"), tests=T_CLASS_B2_SURROGATE),
 ]
 
 

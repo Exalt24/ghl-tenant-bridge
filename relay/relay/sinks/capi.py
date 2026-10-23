@@ -26,7 +26,7 @@ import time
 from typing import Any, Callable
 from urllib.parse import quote
 
-from .. import attribution
+from .. import attribution, ghl
 from ..http import HttpConnectError, HttpFailure, HttpTimeout
 from .base import Event, HttpLike, Outcome, Sink, SinkContext
 
@@ -104,13 +104,11 @@ def error_code(text: str) -> int | None:
 def _event_id_part(event: Event, name: str) -> str | None:
     """The id of the thing the event is about: the opportunity for a Purchase, the appointment for a Schedule, the contact
     for everything else."""
-    payload = event.payload
     kind = event.lead.get("event_type") or ""
     if name == "Purchase" and kind.startswith("Opportunity"):
-        value = payload.get("id")
+        value = ghl.opportunity_id(event.payload)  # the same shape reader the lead uses: flat or inside `data`
     elif kind.startswith("Appointment"):
-        inner = payload.get("appointment")
-        value = inner.get("id") if isinstance(inner, dict) else None
+        value = ghl.appointment_id(event.payload)
     else:
         value = event.lead.get("contact_id")
     return value if isinstance(value, str) and value else None

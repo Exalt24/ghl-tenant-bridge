@@ -389,6 +389,7 @@ def test_a_429_backs_off_with_the_documented_formula_and_marks_the_service_rate_
         got = backoff_429(n, random.Random(n))
         assert min(2**n, 32.0) <= got <= min(2**n + 1, 32.0) and got <= 32.0
     assert len({backoff_429(3, random.Random(s)) for s in range(5)}) > 1  # there is jitter, not a fixed wait
+    assert backoff_429(5000, random.Random(1)) == 32.0  # a rate limit that lasts for hours stays at the cap and never overflows
     sink, http, ctx = fixed(sheets, store, sa_json)
     ctx.retries = 3
     sheets.queue("rate_limit")
