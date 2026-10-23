@@ -545,8 +545,9 @@ def test_a_delivery_reaches_meta_once_through_the_worker_and_a_duplicate_ingest_
     cfg = capi_cfg(meta)
     rig = make_rig(store, cfg, registry={"capi": CapiSink()})
     meta.clock = time.time
-    r = ingest_one(store, cfg, real_payload())
-    assert ingest_one(store, cfg, real_payload()).duplicate is True
+    body = real_payload()  # built once: two calls straddling a second boundary carry different timestamps and are not duplicates
+    r = ingest_one(store, cfg, body)
+    assert ingest_one(store, cfg, body).duplicate is True
     rig.settle()
     d = store.delivery(r.event_id, "capi")
     assert d["state"] == "done" and meta.effects == 1
