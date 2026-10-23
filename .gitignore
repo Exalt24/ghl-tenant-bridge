@@ -7,3 +7,8 @@ tests/token_response.json
 tests/location_token.json
 
 *.tsbuildinfo
+
+# review bundles and other archives made while working on the repo
+*.tar
+*.tar.gz
+*.zip
