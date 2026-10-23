@@ -31,6 +31,36 @@ print(result.counts())
 
 A CSV may be UTF-8 (with or without the byte order mark Excel adds to "CSV UTF-8") or Windows-1252 (what Excel's plain "CSV (Comma delimited)" writes), and the loader reads either. A file that is neither, or UTF-16 (Excel's "Unicode Text"), is refused with an error that names the file and the offset of the first byte it could not read; re-save it as CSV UTF-8. An amount must be a plain decimal string with no more decimals than its currency has. A row the loader refuses is named by its line and column, never by its cell.
 
+## Importing history and a suppression list
+
+`python -m relay.import_history <file.csv>` loads prior outbound contacts and do-not-contact lists, with a dry run by default. The file format, the report, the exit codes and what the worker does with a listed contact are in [history-import.md](history-import.md).
+
+## Run the worker as a Windows scheduled task
+
+For a Windows machine that has to keep the worker running with no one logged on, `deploy/windows/install-service.ps1` registers one Task Scheduler task. No third party binary is involved.
+
+1. Set the worker's settings as MACHINE environment variables from an elevated PowerShell, because a task that runs as SYSTEM does not see a user's variables: `[Environment]::SetEnvironmentVariable('DATABASE_URL', '<value>', 'Machine')`, and the same for `RELAY_CONFIG` and every variable the config names (sink URLs, tokens). With SQLite in prod the worker needs `RELAY_DB_PATH` (an absolute path) and `RELAY_INLINE_WORKER=1`.
+2. Look at what would be registered: `powershell -ExecutionPolicy Bypass -File deploy/windows/install-service.ps1 -WhatIf`. It prints the task definition from real task objects and registers nothing. It also says, by name only, which of `DATABASE_URL`, `RELAY_DB_PATH` and `RELAY_CONFIG` are not set at machine level. It never prints a value.
+3. Register it from an elevated PowerShell with the same command without `-WhatIf`. Options: `-TaskName` (default `RelayWorker`), `-PythonExe` (default `.venv/Scripts/python.exe` in the relay folder, else `python.exe` from PATH), `-RelayDir`, `-RunAs` (`SYSTEM`, `LOCAL SERVICE` or `NETWORK SERVICE`) and `-NoStart`. The Python and the relay folder must be readable by that account.
+4. Remove it with `deploy/windows/uninstall-service.ps1` (also has `-WhatIf`).
+
+The task: trigger at startup, run as SYSTEM as a service account (so whether or not a user is logged on) at the highest run level, action `<python> -m relay.worker` in the relay folder, restart on failure every 1 minute up to 999 times, no execution time limit (the Task Scheduler default of 3 days would stop it), one instance at a time (`IgnoreNew`).
+
+What a crash does, and what was tested: a worker that dies holds its claim until the lease runs out (three sink timeouts, at least 300 seconds), so nothing else sends that row in the meantime, and the restarted worker then completes it. `tests/test_windows_recovery.py` runs `python -m relay.worker` as a child process on a temporary SQLite file, kills it hard (TerminateProcess) while it holds a claimed delivery that a fake Slack is holding open, starts a second worker, and checks that the row stays unsent inside the lease and is delivered exactly once after it (the test lowers the lease to six seconds with `RELAY_LEASE_MIN_S`). The test starts the second worker itself: Task Scheduler's own restart on failure, and `Register-ScheduledTask`, were not exercised, because the tests register no task. A worker that exits with a configuration error exits non-zero, so the task will keep restarting it once a minute until the settings are fixed.
+
+## Alert when jobs stop
+
+The worker writes one row with the time (`heartbeat`, name `worker`) on every cycle, from the database clock. `python -m relay.health_check` reads it and exits 1 with one line per finding:
+
+- `heartbeat`: no heartbeat at all, one older than `--max-heartbeat-age-s` (default 120), or one that cannot be read. The worker is not running.
+- `backlog`: the oldest delivery still pending was created more than `--max-oldest-pending-s` ago (default 3600), or that cannot be read. The worker runs but work is stuck (a paused sink, a vendor that keeps failing).
+
+A read that fails is a finding, never a pass. Exit 0 means healthy, 2 means the setup was refused (a limit that is not a positive number, for example).
+
+Schedule it every minute or two from the same machine (Task Scheduler runs `python -m relay.health_check --alert`) with the same environment as the worker. With `--alert` it also posts ONE message through the Slack sink to `ALERT_WEBHOOK`, then stays quiet for `--cooldown-s` (default 3600) so one outage does not alert on every run; a long outage reminds once per cooldown, and a post that fails is tried again after one minute. The cooldown is kept in the database (`alert_state`, key `health`). Without `ALERT_WEBHOOK` the alert goes to the log as a `RELAY_ALERT` line.
+
+Limit: when the database itself cannot be opened there is nowhere to keep the cooldown, so no Slack alert is posted. The printed `FINDING database` line and the exit code 1 are the signal, so have the scheduler that runs the check raise its own alarm on a non-zero exit.
+
 ## Deploy on Railway (notes, not done)
 
 - Builder: Dockerfile. No `railway.toml`, no Procfile: Railway's config as code is deprecated and its pages give a 2026-12-01 cutoff, so the Dockerfile plus these service settings are the whole description.

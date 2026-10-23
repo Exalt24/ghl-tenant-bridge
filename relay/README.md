@@ -6,7 +6,7 @@ A Python and Flask service that takes a HighLevel lead delivery and fans it out 
 
 No real vendor account was used for any vendor except one check of the Google Sheets values calls with a user token (see the register). Every vendor is a local fake written from a saved copy of the vendor's own documentation, so this page claims what the fakes and the tests show and nothing more. Delivery is at least once with a stored outcome per event and sink, and an idempotent effect only where the vendor offers one. It is NOT exactly once: Slack and Make document no idempotency key, so a send that ends in a 5xx or a timeout may post twice (its six tries span 4.5 hours or more), and the Slack footer carries the first 8 characters of the event id so a duplicate is recognisable.
 
-**At a glance** (details and dates under Counts): 2457 tests pass on SQLite and Postgres 17 (one full local pass on 2026-10-24), 572 mutants each break one guard (570 caught on 2026-10-23, the 2 added on 2026-10-24 caught on their own) with a named failing test each, and a container smoke test sends one lead through the built image to a fake Slack.
+**At a glance** (details and dates under Counts): 2922 tests pass on SQLite and Postgres 17 (a full local run on 2026-10-24, in two parts), 649 mutants each break one guard (the 77 added on 2026-10-24 for the history import, the Windows service and the health check were all caught, 11 of them only on Windows) with a named failing test each, and a container smoke test sends one lead through the built image to a fake Slack.
 
 ## Register
 
@@ -33,6 +33,9 @@ Also true of every row: no real HighLevel delivery has reached this service. `PO
 - `relay/app.py`: the routes. A failure before the durable commit is a 503, never a 200. The request path only stores.
 - `relay/worker.py`: `python -m relay.worker`, `--once` (drain and exit) and `--purge` (null payloads older than 30 days, the row stays so dedupe holds). One thread per sink, a timeout per sink, minimum intervals kept as a time in the database and not a sleep, and a circuit breaker.
 - `relay/sinks/`: Slack, Make, Meta Conversions API, Google Sheets. `relay/pulls/`: Meta Insights, Windsor.ai and Fathom pulls, `python -m relay.pulls`. `relay/fathom_hook.py`, `relay/reconcile.py`, `relay/money.py`.
+- `relay/import_history.py`: `python -m relay.import_history <file.csv>` loads prior outbound contacts or a do-not-contact list (dry run unless `--apply`, all or nothing, idempotent); a suppressed contact is refused at send time and the reason is stored. [docs/history-import.md](docs/history-import.md).
+- `deploy/windows/`: registers the worker as a Windows scheduled task that restarts itself, with `-WhatIf` to print the task and register nothing. [docs/runbook.md](docs/runbook.md).
+- `relay/health_check.py`: `python -m relay.health_check` exits non-zero when the worker heartbeat is stale or the oldest unfinished delivery is too old, and `--alert` posts one Slack alert per cooldown. [docs/runbook.md](docs/runbook.md).
 - Routes, duplicates and outcomes: [docs/routes.md](docs/routes.md). Configuration: [docs/configuration.md](docs/configuration.md). Runbook, retention, scheduling, reconciliation and the Railway notes: [docs/runbook.md](docs/runbook.md).
 
 ## Run it
@@ -45,8 +48,18 @@ docker run -d --name relay-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:17
 DATABASE_URL_TEST=postgresql://postgres:pw@127.0.0.1:55432/postgres python -m pytest -q
 DATABASE_URL_TEST=postgresql://postgres:pw@127.0.0.1:55432/postgres python tests/mutants.py
 python tools/check_readme_claims.py
+python tools/check_readme_counts.py
 python tools/container_smoke.py --build
 docker rm -f relay-pg
+```
+
+The three commands the worker's operators use besides `relay.worker` (the history import is a dry run until `--apply`):
+
+```
+python -m relay.import_history history.csv --kind ContactCreate [--apply]
+python -m relay.import_history dnc.csv --list suppression [--apply]
+python -m relay.health_check [--alert]
+powershell -ExecutionPolicy Bypass -File deploy/windows/install-service.ps1 -WhatIf
 ```
 
 On Windows PowerShell the two `DATABASE_URL_TEST=... python` lines are not valid, so set the variable first and call the venv Python explicitly:
@@ -61,9 +74,9 @@ Without `DATABASE_URL_TEST` the Postgres half is skipped and the run prints that
 
 ## Counts
 
-From one full local pass: 2457 tests passed and 2 skipped on SQLite and Postgres together, run in one pass of 16 minutes 35 seconds on 2026-10-24 with `RELAY_REQUIRE_POSTGRES=1` against Postgres 17 (pytest counts each store backed test once per store; the 2 skips are the Postgres row lock test and the SQLite lock expiry test, which have no counterpart on the other store). The 38 test files hold 1892 lines whose first word is `assert` (a static count with indented lines, not executed assertions).
+From one full local run on 2026-10-24: 2922 tests passed and 2 skipped on SQLite and on Postgres 17, on Windows 11, with `RELAY_REQUIRE_POSTGRES=1` set. The run is two `pytest` invocations over disjoint lists of test files because one pass is longer than this machine's 10 minute command limit: 12 files gave 1343 passed in 12 minutes 44 seconds, and the other 31 files gave 1578 passed, 2 skipped and 1 failed in 8 minutes 6 seconds. The failure was the check that the README counts match the files, run before this section was updated; after the update `tests/test_tools.py` and `tests/test_repo_hygiene.py` were run again and the check passed, which makes 1343 + 1578 + 1 = 2922 (pytest counts each store backed test once per store; the 2 skips are the Postgres row lock test and the SQLite lock expiry test, which have no counterpart on the other store). The 43 test files hold 2105 lines whose first word is `assert` (a static count with indented lines, not executed assertions).
 
-`python tests/mutants.py` holds 572 mutants: 111 from tier 1, 190 from tier 2, 215 from tier 3, 17 from the first output pass, 20 from the second, 17 from the Sheets check and backoff cap and 2 from the infrastructure review (a database free `/livez` route and a container smoke test that runs with a read only root). On 2026-10-23 all 8 local shards, `--shard 1/8` to `8/8` with `--no-baseline`, ran and every one of the 570 then in the file was caught by a named failing test; the 2 added on 2026-10-24 were run on their own with `--only` and both were caught. The harness's baseline step hit its 420 second limit here, so the full suite run above stood in for it. CI runs the same list in 8 shards. The container smoke test passed on 2026-10-24, now with `--read-only`, a `/tmp` and `/data` tmpfs and `HOME=/tmp`, the read only root of the Fargate task in `../infra/`, with a tmpfs standing in for its `/tmp` volume. `tests/corpus/` keeps the 60 cases an independent reviewer wrote, and `tests/test_output_corpus.py` replays the eight that disagreed. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
+`python tests/mutants.py` holds 649 mutants: 111 from tier 1, 190 from tier 2, 215 from tier 3, 17 from the first output pass, 20 from the second, 17 from the Sheets check and backoff cap, 2 from the infrastructure review (a database free `/livez` route and a container smoke test that runs with a read only root) and 77 from the history import, the Windows service and the health check (13 for contact keys, 25 for the import and the send time check, 5 for the lease floor, the region and the Slack alert text, 18 for the heartbeat and the health check, 5 for the alert cooldown and 11 for the install script, which run only on Windows and are listed as not run elsewhere). On 2026-10-23 all 8 local shards, `--shard 1/8` to `8/8` with `--no-baseline`, ran and every one of the 570 then in the file was caught by a named failing test; the 2 added on 2026-10-24 were run on their own with `--only` and both were caught. The 77 added later on 2026-10-24 were run on their own the same way and all 77 were caught; that run also showed two tests of mine that were flaky or vacuous (a freshly written heartbeat can read a hair under zero seconds old, and an empty working directory resolves to the test's own folder), which were fixed and their mutants run again. The other 572 earlier mutants were not all run again: every mutant that edits a file this change touched (`store/base.py`, `fanout.py`, `worker.py`, `sinks/slack.py`, `sinks/base.py` and `config.py`, 159 in all, old and new) was run on 2026-10-24 and all 159 were caught. The harness's baseline step hit its 420 second limit here, so the full suite run above stood in for it. CI runs the same list in 8 shards. The container smoke test passed earlier on 2026-10-24 (before the history import, the Windows service and the health check were added, and not run again since), now with `--read-only`, a `/tmp` and `/data` tmpfs and `HOME=/tmp`, the read only root of the Fargate task in `../infra/`, with a tmpfs standing in for its `/tmp` volume. `tests/corpus/` keeps the 60 cases an independent reviewer wrote, and `tests/test_output_corpus.py` replays the eight that disagreed. These numbers are the relay's own and are kept apart from the 263 assertions of the 13 root suites and the counts in `edge/README.md`.
 
 ## ASSUMED, and what would settle each
 

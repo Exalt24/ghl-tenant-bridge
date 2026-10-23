@@ -13,6 +13,9 @@ Back to the [relay README](../README.md).
 | `RELAY_INGEST_TOKEN`, `RELAY_INGEST_TOKEN_PREVIOUS`, `RELAY_ADMIN_TOKEN` | At least 16 characters. The admin token must differ from the ingest tokens. |
 | `ALERT_WEBHOOK` | A Slack webhook for relay alerts, one digest per sink per 15 minutes. Without it the digest goes to the log as `RELAY_ALERT`. |
 | `RELAY_WORKER_INTERVAL_S` | Idle wait between passes, default 5. |
+| `RELAY_LEASE_MIN_S` | The floor of a delivery's lease in seconds, default 300, at least 1. A lease is never shorter than three sink timeouts whatever this says, so lowering it only helps a test or a recovery drill. |
+| `RELAY_DEFAULT_REGION` | How a phone with no country is read by the send time contact check and by `python -m relay.import_history`: `US` (default), `CA`, `PH`, `GB`, `AU`, `NZ`, `IN`, `SG` or `IE`. Both must agree, so set it once for the whole deployment. |
+| `RELAY_HEALTH_MAX_HEARTBEAT_AGE_S`, `RELAY_HEALTH_MAX_OLDEST_PENDING_S`, `RELAY_HEALTH_ALERT_COOLDOWN_S` | The limits of `python -m relay.health_check`: 120, 3600 and 3600 seconds by default. A flag of the same meaning wins. |
 | `RELAY_TEST_GHL_PUBLIC_KEY` | Test key for signature tests, honoured only when `RELAY_ENV` is `test`. A test asserts nothing shipped sets it. |
 
 ## Sinks

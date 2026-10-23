@@ -13,6 +13,8 @@ test, never the mutant.
 A mutant first runs the test files most likely to catch it. If those stay green it runs the whole suite before it is
 called a survivor. Every mutated tree must still import and collect, so a mutant cannot be "caught" by a syntax error.
 Postgres only mutants run against DATABASE_URL_TEST; without it they are listed as NOT RUN and the harness exits 2.
+Windows only mutants (platform="windows", the scheduled task scripts) are caught by a test that is skipped on other systems, so
+elsewhere they are listed as NOT RUN, counted in the closing line and not a failure.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ EXTRA_FROM_REPO = [".github/workflows/ci.yml", ".github/dependabot.yml", "CLAUDE
 RUN_TIMEOUT_S = 420
 # Too slow to run for every mutant; the full suite (and the fallback below) still runs them.
 SLOW_TESTS = ["tests/test_fanout.py::test_many_leads_against_a_rate_limiting_vendor_all_arrive_and_none_die"]
+NEEDS_WINDOWS = "needs Windows: its catching test is skipped elsewhere, run this harness on Windows to run it"
 COLLECTION_ERROR = re.compile(r"errors? during collection|ERROR collecting", re.IGNORECASE)
 
 
@@ -46,10 +49,11 @@ class Mutant:
     edits: list[tuple[str, str]]
     tests: list[str] = field(default_factory=list)
     stores: str = "sqlite"
+    platform: str = ""  # "windows": the catching test only runs on Windows, so elsewhere the mutant is listed as not run
 
 
-def M(name: str, file: str, *edits: tuple[str, str], tests: list[str] | None = None, stores: str = "sqlite") -> Mutant:
-    return Mutant(name, file, list(edits), tests or [], stores)
+def M(name: str, file: str, *edits: tuple[str, str], tests: list[str] | None = None, stores: str = "sqlite", platform: str = "") -> Mutant:
+    return Mutant(name, file, list(edits), tests or [], stores, platform)
 
 
 STORE = "relay/store/base.py"
@@ -86,6 +90,11 @@ FFATH = "tests/fakes/fathom.py"
 TCLAIMS = "tools/check_readme_claims.py"
 TSMOKE = "tools/container_smoke.py"
 TSFAKE = "tools/smoke_fake.py"
+CON = "relay/contacts.py"
+IMP = "relay/import_history.py"
+HLT = "relay/health_check.py"
+INSTALL = "deploy/windows/install-service.ps1"
+UNINSTALL = "deploy/windows/uninstall-service.ps1"
 
 T_STORE = ["tests/test_store_contract.py"]
 T_FAN = ["tests/test_fanout.py"]
@@ -123,6 +132,11 @@ T_CLASS_B2_F8 = ["tests/test_class_blind2.py::test_class_f8_an_ambiguous_outcome
 T_CLASS_B2_F10 = ["tests/test_class_blind2.py"]
 T_CLASS_B2_F11 = ["tests/test_class_blind2.py"]
 T_CLASS_B2_SURROGATE = ["tests/test_class_blind2.py"]
+T_CON = ["tests/test_contacts.py"]
+T_HIST = ["tests/test_history_import.py"]
+T_HEALTH = ["tests/test_health_check.py"]
+T_WIN = ["tests/test_windows_recovery.py"]
+T_EXT = ["tests/test_extension_config.py"]
 
 MUTANTS: list[Mutant] = [
     # ---- ingest and the store ----------------------------------------------------------------------------------------
@@ -838,6 +852,84 @@ MUTANTS: list[Mutant] = [
     M("S the canonical lead does not clean a custom answer key", GHL, ("answers[clean_text(k)] = t", "answers[k] = t"), tests=T_CLASS_B2_SURROGATE),
     M("S a payment row keeps a lone half in its id", REC, ("clean_text(rid).strip()", "rid.strip()"), tests=T_CLASS_B2_SURROGATE),
     M("S a payment row keeps a lone half in its bucket", REC, ("clean_text(bucket) if bucket else None", "bucket if bucket else None"), tests=T_CLASS_B2_SURROGATE),
+    # ---- relay extension: history import and suppression list, the Windows service, the heartbeat health check ----
+    M("contacts: an email is not lower cased", CON, ("    text = raw.strip().lower()", "    text = raw.strip()"), tests=T_CON),
+    M("contacts: an address that is not one is accepted", CON, ("    if len(text) > MAX_EMAIL_CHARS or not EMAIL.match(text):", "    if False:"), tests=T_CON),
+    M("contacts: an at sign no longer makes a contact an email", CON, ('    if "@" in raw:\n        return "email:"', '    if False:\n        return "email:"'), tests=T_CON),
+    M("contacts: a trunk prefix is not dropped", CON, ("    if home.trunk and national.startswith(home.trunk) and (len(national) - len(home.trunk)) in home.national_lengths:", "    if False:"), tests=T_CON),
+    M("contacts: a country code typed without a plus is not read", CON, ("        if national.startswith(home.code) and (len(national) - len(home.code)) in home.national_lengths:", "        if False:"), tests=T_CON),
+    M("contacts: the 00 international prefix is not read", CON, ('    if digits.startswith("00"):', "    if False:"), tests=T_CON),
+    M("contacts: an international number of any length is accepted", CON, ("    if not E164_MIN_DIGITS <= len(digits) <= E164_MAX_DIGITS:", "    if False:"), tests=T_CON),
+    M("contacts: a known country's national length is not checked", CON, ("            if len(national) not in CODES[code].national_lengths:", "            if False:"), tests=T_CON),
+    M("contacts: a national number that starts with 0 is accepted", CON, ('    if national.startswith("0"):', "    if False:"), tests=T_CON),
+    M("contacts: letters and a plus in the middle are accepted", CON, ('    if not PHONE_CHARS.match(text) or "+" in text[1:]:', "    if False:"), tests=T_CON),
+    M("contacts: the country code is left off the E.164 number", CON, ('    return "+" + home.code + national', '    return "+" + national'), tests=T_CON),
+    M("contacts: a lead is known by its email only", CON, ('    for field_name in ("email", "phone"):', '    for field_name in ("email",):'), tests=T_CON + T_HIST),
+    M("contacts: a lead is known by its phone only", CON, ('    for field_name in ("email", "phone"):', '    for field_name in ("phone",):'), tests=T_CON + T_HIST),
+    M("history: a second import of the same history adds rows again", STORE, ('f"ON CONFLICT (contact_key, message_kind) DO NOTHING",', 'f"ON CONFLICT (contact_key, message_kind) DO UPDATE SET imported_at = excluded.imported_at",'), tests=T_HIST),
+    M("history: a second suppression import replaces the first reason", STORE, ('f"ON CONFLICT (contact_key) DO NOTHING",', 'f"ON CONFLICT (contact_key) DO UPDATE SET reason = excluded.reason",'), tests=T_HIST),
+    M("history: the import commits row by row, not all or nothing", STORE, ("        with self.tx(write=apply) as t:\n            for key, value in rows:", "        for key, value in rows:\n            with self.tx(write=apply) as t:"), tests=T_HIST),
+    M("history: a dry run writes", STORE, ('                if apply:\n                    if which == "history":', '                if True:\n                    if which == "history":'), tests=T_HIST),
+    M("history: a suppressed contact is not looked up at send time", STORE, ('            if row is not None:\n                return "suppressed", str(row["reason"])', '            if False:\n                return "suppressed", str(row["reason"])'), tests=T_HIST),
+    M("history: an already sent contact is not looked up at send time", STORE, ('            if row is not None:\n                return "already_sent", "already sent before the relay"', '            if False:\n                return "already_sent", "already sent before the relay"'), tests=T_HIST),
+    M("history: the message kind is ignored, any history row blocks", STORE, ("WHERE message_kind = ? AND contact_key IN ({marks}) LIMIT 1", "WHERE ? IS NOT NULL AND contact_key IN ({marks}) LIMIT 1"), tests=T_HIST),
+    M("send time: the suppression and history check is skipped", FAN, ("    if refused is not None:\n        return refused, False", "    if False:\n        return refused, False"), tests=T_HIST),
+    M("send time: a list that cannot be read lets the send go ahead", FAN, ('        return Outcome.retry(reason=f"contact check failed: {type(exc).__name__}")', "        return None"), tests=T_HIST),
+    M("send time: the email of a lead is not checked", FAN, ("    keys = contacts.lead_keys(event.lead, ctx.cfg.default_region)", '    keys = [k for k in contacts.lead_keys(event.lead, ctx.cfg.default_region) if k.startswith("phone:")]'), tests=T_HIST),
+    M("send time: the phone of a lead is not checked", FAN, ("    keys = contacts.lead_keys(event.lead, ctx.cfg.default_region)", '    keys = [k for k in contacts.lead_keys(event.lead, ctx.cfg.default_region) if k.startswith("email:")]'), tests=T_HIST),
+    M("send time: every message kind is read as one", FAN, ('    kind = event.lead.get("event_type") or "event"', '    kind = "ContactCreate"'), tests=T_HIST),
+    M("send time: the reason for a refusal is not stored", FAN, ('    return Outcome.suppressed(f"suppressed: {why}" if what == "suppressed" else why)', '    return Outcome.skipped("refused")'), tests=T_HIST),
+    M("import: a file with a header and no rows is read as nothing to import", IMP, ("    if plan.rows_read == 0:\n        raise CsvError(", "    if False:\n        raise CsvError("), tests=T_HIST),
+    M("import: a file without the contact column is not refused", IMP, ('        if "contact" not in header:\n            raise CsvError("the file has no column named contact")', '        if False:\n            raise CsvError("the file has no column named contact")'), tests=T_HIST),
+    M("import: apply writes the valid rows even when some are refused", IMP, ("    if apply and plan.invalid and not skip_invalid:\n        return None", "    if False:\n        return None"), tests=T_HIST),
+    M("import: the expected row count is ignored", IMP, ("    if expect_rows is not None and plan.rows_read != expect_rows:", "    if False:"), tests=T_HIST),
+    M("import: a repeat inside the file is not counted", IMP, ("                plan.file_duplicates += 1", "                pass"), tests=T_HIST),
+    M("import: a history file needs no message kind", IMP, ('        if which == "history" and "kind" not in at and not kind:', "        if False:"), tests=T_HIST),
+    M("import: the region flag and the setting are ignored", IMP, ("    region = (args.region or cfg.default_region).upper()", '    region = "US"'), tests=T_HIST),
+    M("import: a refused row is reported one line late", IMP, ("            line_no = reader.line_num  #", "            line_no = reader.line_num + 1  #"), tests=T_HIST),
+    M("import: a refused row does not make the run non-zero", IMP, ("    return 1 if report.invalid else 0", "    return 0"), tests=T_HIST),
+    M("import: contacts are not normalised before they are stored", IMP, ('            key = contact_key(_clean(cells[at["contact"]]), region)', '            key = _clean(cells[at["contact"]])'), tests=T_HIST),
+    M("import: a suppression row with no reason has none", IMP, ('                value = (_clean(cells[at["reason"]]) if "reason" in at else "") or DEFAULT_REASON', '                value = (_clean(cells[at["reason"]]) if "reason" in at else "") or ""'), tests=T_HIST),
+    M("import: history rows of a suppressed contact are not counted", IMP, ("        suppressed = len(store.suppressed_among([k for k, _ in plan.rows]))", "        suppressed = 0"), tests=T_HIST),
+    M("config: a lease floor under a second is accepted", CFG, ('        if not (lease_min_s >= 1.0) or lease_min_s == float("inf"):', "        if False:"), tests=T_EXT),
+    M("config: the default region is not checked at load", CFG, ("        region = contacts.default_region(env)", '        region = (env.get("RELAY_DEFAULT_REGION") or "US").strip().upper()'), tests=T_EXT),
+    M("config: the lease floor setting is ignored", FAN, ("    floor = LEASE_MIN_S if cfg.lease_min_s is None else cfg.lease_min_s", "    floor = LEASE_MIN_S"), tests=T_EXT + T_WIN),
+    M("slack: the alert is not sent through the sink", SLK, ("        return self._post(build_alert_message(text), http, ctx)", "        return Outcome.done()"), tests=T_EXT + T_HEALTH),
+    M("slack: the alert text is not escaped", SLK, ('    return {"text": truncate_escaped(text, SAFE_TEXT_CHARS) or "relay alert"}', '    return {"text": text or "relay alert"}'), tests=T_EXT + T_HEALTH),
+    M("heartbeat: the worker never writes one", WRK, ('            self.store.beat("worker")  # one row', "            pass  # one row"), tests=T_HEALTH),
+    M("heartbeat: a failed write stops the rest of the cycle", WRK, ("        except Exception as exc:  # a failed beat shows up", "        except KeyError as exc:  # a failed beat shows up"), tests=T_HEALTH),
+    M("heartbeat: a second beat does not refresh the row", STORE, ("ON CONFLICT (name) DO UPDATE SET beat_at = excluded.beat_at", "ON CONFLICT (name) DO NOTHING"), tests=T_HEALTH),
+    M("heartbeat: the age is always zero, so the check always passes", STORE, ("SELECT {self.age_s('beat_at')} AS age_s", "SELECT 0.0 AS age_s"), tests=T_HEALTH),
+    M("health: the oldest unfinished delivery counts finished ones", STORE, ("AS age_s FROM deliveries WHERE state = 'pending'\")", "AS age_s FROM deliveries\")"), tests=T_HEALTH),
+    M("health: the newest unfinished delivery decides, not the oldest", STORE, ("self.age_s('MIN(created_at)')", "self.age_s('MAX(created_at)')"), tests=T_HEALTH),
+    M("health: a stale heartbeat is never a finding", HLT, ("        elif not (age <= max_heartbeat_age_s):", "        elif False:"), tests=T_HEALTH),
+    M("health: an age that is not a number reads as fresh", HLT, ("        elif not (age <= max_heartbeat_age_s):", "        elif age > max_heartbeat_age_s:"), tests=T_HEALTH),
+    M("health: a heartbeat exactly at its limit is a finding", HLT, ("        elif not (age <= max_heartbeat_age_s):", "        elif age >= max_heartbeat_age_s:"), tests=T_HEALTH),
+    M("health: a delivery exactly at its limit is a finding", HLT, ("        if oldest is not None and not (oldest <= max_oldest_pending_s):", "        if oldest is not None and oldest >= max_oldest_pending_s:"), tests=T_HEALTH),
+    M("health: an old unfinished delivery is never a finding", HLT, ("        if oldest is not None and not (oldest <= max_oldest_pending_s):", "        if False:"), tests=T_HEALTH),
+    M("health: a worker that never beat is a pass", HLT, ('            findings.append(Finding("heartbeat", "the worker has never written a heartbeat: it is not running, or it never started"))', "            pass"), tests=T_HEALTH),
+    M("health: a heartbeat that cannot be read is a pass", HLT, ('        findings.append(Finding("heartbeat", f"the worker heartbeat could not be read ({type(exc).__name__}), so it is treated as missing"))', "        pass"), tests=T_HEALTH),
+    M("health: a backlog that cannot be read is a pass", HLT, ('        findings.append(Finding("backlog", f"the oldest unfinished delivery could not be read ({type(exc).__name__}), so it is treated as stuck"))', "        pass"), tests=T_HEALTH),
+    M("health: a database that cannot be opened is a pass", HLT, ('        print(f"FINDING database: the database could not be opened ({type(exc).__name__})")\n        return 1', '        print(f"FINDING database: the database could not be opened ({type(exc).__name__})")\n        return 0'), tests=T_HEALTH),
+    M("health: findings exit zero", HLT, ("            if own_http:\n                client.close()\n    return 1", "            if own_http:\n                client.close()\n    return 0"), tests=T_HEALTH),
+    M("health: a healthy worker is reported as a finding", HLT, ("    findings = check(store, max_hb, max_old)\n", '    findings = check(store, max_hb, max_old) or [Finding("heartbeat", "x")]\n'), tests=T_HEALTH),
+    M("health: a limit of zero or infinity is accepted", HLT, ("    if not (value > 0) or math.isinf(value):", "    if False:"), tests=T_HEALTH),
+    M("alert: there is no cooldown, every tick alerts", HLT, ('        if not store.alert_gate(GATE, cooldown_s):\n            return "cooldown"', '        if False:\n            return "cooldown"'), tests=T_HEALTH),
+    M("alert: a failed post does not reopen the gate", HLT, ("        store.alert_gate_release(GATE, cooldown_s, RETRY_AFTER_FAILURE_S)", "        pass"), tests=T_HEALTH),
+    M("alert: any answer from Slack counts as delivered", HLT, ("    if outcome is not None and outcome.kind == DONE:", "    if outcome is not None:"), tests=T_HEALTH),
+    M("alert: a cooldown that cannot be read posts anyway", HLT, ('        log.error("health alert cooldown could not be read: %s", type(exc).__name__)\n        return "gate_unreadable"', '        log.error("health alert cooldown could not be read: %s", type(exc).__name__)'), tests=T_HEALTH),
+    M("alert: the text is not escaped for Slack", HLT, ('    return escape("relay health alert: " + " | ".join(f"{f.code}: {f.message}" for f in findings))', '    return "relay health alert: " + " | ".join(f"{f.code}: {f.message}" for f in findings)'), tests=T_HEALTH),
+    M("windows: the task restarts three times, not 999", INSTALL, ("-RestartCount 999", "-RestartCount 3"), tests=T_WIN, platform="windows"),
+    M("windows: the task restarts every ten minutes, not every minute", INSTALL, ("-RestartInterval (New-TimeSpan -Minutes 1)", "-RestartInterval (New-TimeSpan -Minutes 10)"), tests=T_WIN, platform="windows"),
+    M("windows: the task starts at logon, not at startup", INSTALL, ("New-ScheduledTaskTrigger -AtStartup", "New-ScheduledTaskTrigger -AtLogOn"), tests=T_WIN, platform="windows"),
+    M("windows: the task runs at a limited run level", INSTALL, ("-RunLevel Highest", "-RunLevel Limited"), tests=T_WIN, platform="windows"),
+    M("windows: the task needs a logged on user", INSTALL, ("-LogonType ServiceAccount", "-LogonType Interactive"), tests=T_WIN, platform="windows"),
+    M("windows: the task is stopped after three days", INSTALL, ("-ExecutionTimeLimit ([TimeSpan]::Zero)", "-ExecutionTimeLimit (New-TimeSpan -Days 3)"), tests=T_WIN, platform="windows"),
+    M("windows: the task runs the worker once, not for ever", INSTALL, ("-Argument '-m relay.worker'", "-Argument '-m relay.worker --once'"), tests=T_WIN, platform="windows"),
+    M("windows: the task has no working directory", INSTALL, (" -WorkingDirectory $RelayDir\n$trigger", "\n$trigger"), tests=T_WIN, platform="windows"),
+    M("windows: a second instance may start beside the first", INSTALL, ("-MultipleInstances IgnoreNew", "-MultipleInstances Parallel"), tests=T_WIN, platform="windows"),
+    M("windows: the uninstall dry run claims the task exists", UNINSTALL, ("$(if ($existing) { 'yes' } else { 'no' })", "'yes'"), tests=T_WIN, platform="windows"),
+    M("windows: a restarted worker takes a row inside the dead worker's lease", STORE, ('f"AND ({a}.claim_until IS NULL OR {a}.claim_until <= {n}) "\n', '""\n'), tests=T_WIN, platform="windows"),
 ]
 
 
@@ -883,6 +975,8 @@ def run_one(mutant: Mutant) -> tuple[str, str]:
     """('caught' | 'SURVIVED' | 'BROKEN' | 'NOT RUN', detail)"""
     if "postgres" in mutant.stores and not os.environ.get("DATABASE_URL_TEST"):
         return "NOT RUN", "needs DATABASE_URL_TEST"
+    if mutant.platform == "windows" and sys.platform != "win32":
+        return "NOT RUN", NEEDS_WINDOWS
     with tempfile.TemporaryDirectory(prefix="relay-mutant-") as d:
         root = copy_tree(Path(d))
         problem = apply(mutant, root)
@@ -987,12 +1081,15 @@ def main() -> int:
     global PRISTINE
     problems = 0
     not_run = 0
+    windows_only = 0
     with tempfile.TemporaryDirectory(prefix="relay-pristine-") as pristine_dir:
         PRISTINE = copy_tree(Path(pristine_dir))
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
             for mutant, (status, detail) in zip(selected, pool.map(run_one, selected)):
                 print(f"{status:<9} {mutant.name}  ({detail})", flush=True)
-                if status == "NOT RUN":
+                if status == "NOT RUN" and detail == NEEDS_WINDOWS:
+                    windows_only += 1  # listed, counted in the summary, and not a failure: no Linux run can ever catch it
+                elif status == "NOT RUN":
                     not_run += 1
                 elif status != "caught":
                     problems += 1
@@ -1001,9 +1098,10 @@ def main() -> int:
         print(f"\n{problems} PROBLEM(S) in {len(selected)} mutants, run {today}")
         return 1
     if not_run:
-        print(f"\n{not_run} mutant(s) NOT RUN (set DATABASE_URL_TEST); {len(selected) - not_run} caught, run {today}")
+        print(f"\n{not_run} mutant(s) NOT RUN (set DATABASE_URL_TEST); {len(selected) - not_run - windows_only} caught, run {today}")
         return 2
-    print(f"\nALL {len(selected)} MUTANTS CAUGHT, run {today}")
+    skipped = f" ({windows_only} Windows-only mutants were not run here)" if windows_only else ""
+    print(f"\nALL {len(selected) - windows_only} MUTANTS CAUGHT{skipped}, run {today}")
     return 0
 
 
