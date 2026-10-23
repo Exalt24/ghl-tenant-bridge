@@ -29,6 +29,7 @@ __all__ = ["SLEEP_PAD_S", "PullAbort", "PullEnv", "PullError", "PullResult", "Pu
 MAX_TRIES = 6
 MAX_WAIT_S = 300.0  # one wait inside a run; a vendor that asks for longer is answered by ending the run
 MAX_TOTAL_WAIT_S = 900.0  # all waits in one run
+EXPONENT_CAP = 30   # an uncapped exponent past 1023 raises OverflowError when multiplied by a float
 BACKOFF_BASE_S = 5.0
 BACKOFF_CAP_S = 120.0
 MAX_PAGES = 2000  # a corrupt cursor chain must end somewhere
@@ -75,7 +76,7 @@ class PullEnv:
 
 def backoff_s(attempt: int, rng: random.Random, base: float = BACKOFF_BASE_S, cap: float = BACKOFF_CAP_S) -> float:
     """min(base * 2^attempt, cap) with jitter between half and all of it, so concurrent pulls do not retry in step."""
-    top = min(base * (2 ** max(attempt, 0)), cap)
+    top = min(base * (2 ** min(max(attempt, 0), EXPONENT_CAP)), cap)   # capped: 2 ** 1024 no longer converts to a float
     return top / 2 + rng.random() * top / 2
 
 

@@ -26,6 +26,7 @@ from .store.base import Claim, FinishPlan, IngestResult, SqlStore
 log = logging.getLogger("relay.fanout")
 
 MAX_ATTEMPTS = 6
+EXPONENT_CAP = 30   # no backoff here needs more than 2 ** 30; an uncapped exponent past 1023 raises OverflowError when multiplied by a float
 BACKOFF_BASE_S = 60.0
 BACKOFF_CAP_S = 3600.0
 # An AMBIGUOUS try may have posted, so its budget stays 6 (every extra try is a possible duplicate). The six tries are
@@ -75,14 +76,14 @@ def ingest(
 
 def backoff_s(n: int, rng: random.Random) -> float:
     """min(60 * 2^n, 3600) seconds, with jitter so a recovered vendor is not hit by every row at the same second."""
-    base = min(BACKOFF_BASE_S * (2 ** max(n, 0)), BACKOFF_CAP_S)
+    base = min(BACKOFF_BASE_S * (2 ** min(max(n, 0), EXPONENT_CAP)), BACKOFF_CAP_S)   # the exponent is capped: 2 ** 1024 no longer converts to a float
     return base / 2 + rng.random() * base / 2
 
 
 def ambiguous_backoff_s(n: int, rng: random.Random) -> float:
     """The wait after the n-th ambiguous try (n from 0): min(1800 * 2^n, 3600) seconds plus up to 25 percent, never less
     than the base, so the five waits between six tries total at least 16200 seconds (4.5 hours)."""
-    base = min(AMBIGUOUS_BACKOFF_BASE_S * (2 ** max(n, 0)), AMBIGUOUS_BACKOFF_CAP_S)
+    base = min(AMBIGUOUS_BACKOFF_BASE_S * (2 ** min(max(n, 0), EXPONENT_CAP)), AMBIGUOUS_BACKOFF_CAP_S)
     return base * (1 + AMBIGUOUS_JITTER * rng.random())
 
 

@@ -633,3 +633,17 @@ def test_without_an_alert_webhook_the_digest_goes_to_the_log(store, slack, make,
         rig.settle()
     assert any("RELAY_ALERT" in r.getMessage() and "slack" in r.getMessage() for r in caplog.records)
     assert store.alerts_unsent("slack") == []
+
+
+def test_class_every_backoff_survives_a_huge_retry_count():
+    """An exponent past 1023 makes `float * 2 ** n` raise OverflowError, which would kill a delivery or a pull that retried long enough."""
+    # CLASS-TABLE: every backoff function x a retry count at, past and far past the float limit
+    import itertools
+
+    from relay.pulls.common import backoff_s as pull_backoff_s
+
+    cases = list(itertools.product((("fanout", backoff_s), ("ambiguous", ambiguous_backoff_s), ("pull", pull_backoff_s)), (1022, 1023, 1024, 5000, 10**6)))
+    assert len(cases) == 15
+    for (name, fn), n in cases:
+        v = fn(n, random.Random(n))
+        assert 0 < v <= 4500, (name, n, v)
