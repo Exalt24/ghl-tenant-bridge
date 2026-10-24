@@ -7,7 +7,10 @@
     - trigger: at startup
     - principal: SYSTEM (a service account), so it runs whether or not anyone is logged on, highest run level
     - action: <python> -m relay.worker, working directory = the relay folder
-    - on failure: restart every 1 minute, up to 999 times
+    - on failure: restart every 1 minute, up to 999 times. Task Scheduler applies this only when it cannot LAUNCH the action
+      (observed 2026-10-24: a launch failure was retried every minute, a process that started and exited non-zero was not)
+    - repeat the trigger every 1 minute, indefinitely: with one instance at a time the repeat does nothing while the worker runs,
+      and starts a new worker within a minute when it has died. This is what restarts a killed or crashed worker.
     - no execution time limit (the Task Scheduler default of 3 days would stop the worker), one instance at a time
 
   The worker reads its settings from environment variables (DATABASE_URL or RELAY_DB_PATH, RELAY_CONFIG, and every secret the
@@ -15,8 +18,21 @@
   [Environment]::SetEnvironmentVariable('NAME', 'value', 'Machine'). This script never reads, prints or stores a value: it only
   says whether each name is set.
 
+  -RunAs CurrentUser is the per-user mode, for a machine where no elevated shell is at hand (a developer PC, a check run):
+    - trigger: at logon of the current user, plus the immediate start below
+    - principal: the current user, logon type Interactive (no stored password), run level Limited, so registering it needs no
+      elevation. It runs only while that user is logged on. S4U ("whether or not logged on") was tried on a non-elevated shell and
+      Windows refused it with Access is denied, because it needs the batch logon right.
+    - an Interactive task opens a window for a console program, so without -PythonExe the default is pythonw.exe from the same
+      folder as python.exe (no window, no console)
+    - the rest of the definition is the same: action, restart on failure every 1 minute up to 999 times, the trigger repeated every
+      1 minute, no time limit, one instance
+    - the worker sees the current user's USER level environment variables (set them with
+      [Environment]::SetEnvironmentVariable('NAME', 'value', 'User')), and nothing is read from the machine level
+  It only runs while that user's tasks can run, so it is not a replacement for the SYSTEM task on a server.
+
   -WhatIf prints the exact task definition (built as real ScheduledTask objects, so a wrong parameter fails here) and registers
-  nothing. Without -WhatIf the script must run elevated.
+  nothing. Without -WhatIf the SYSTEM, LOCAL SERVICE and NETWORK SERVICE accounts must run elevated; CurrentUser does not.
 
 .EXAMPLE
   .\install-service.ps1 -WhatIf
@@ -27,13 +43,14 @@ param(
     [string]$TaskName = 'RelayWorker',
     [string]$RelayDir = '',
     [string]$PythonExe = '',
-    [ValidateSet('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE')]
+    [ValidateSet('SYSTEM', 'LOCAL SERVICE', 'NETWORK SERVICE', 'CurrentUser')]
     [string]$RunAs = 'SYSTEM',
     [switch]$NoStart
 )
 
 $ErrorActionPreference = 'Stop'
 
+$perUser = ($RunAs -eq 'CurrentUser')
 if (-not $RelayDir) {
     # $PSScriptRoot is not set inside a param() default on Windows PowerShell 5.1, so the default is worked out here
     $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -51,12 +68,27 @@ if (-not $PythonExe) {
         if (-not $found) { throw 'No python.exe found. Create relay\.venv or pass -PythonExe with the full path.' }
         $PythonExe = $found.Source
     }
+    if ($perUser) {
+        # an Interactive task opens a console window for python.exe and takes the foreground, so the default is the windowless twin
+        $windowless = Join-Path (Split-Path -Parent $PythonExe) 'pythonw.exe'
+        if (Test-Path -LiteralPath $windowless) { $PythonExe = $windowless }
+    }
 }
 if (-not (Test-Path -LiteralPath $PythonExe)) { throw "PythonExe '$PythonExe' does not exist." }
 
-$action    = New-ScheduledTaskAction -Execute $PythonExe -Argument '-m relay.worker' -WorkingDirectory $RelayDir
-$trigger   = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal -UserId $RunAs -LogonType ServiceAccount -RunLevel Highest
+$userId = '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
+$action  = New-ScheduledTaskAction -Execute $PythonExe -Argument '-m relay.worker' -WorkingDirectory $RelayDir
+if ($perUser) {
+    $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $userId
+    $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+} else {
+    $trigger   = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId $RunAs -LogonType ServiceAccount -RunLevel Highest
+}
+# Restart on failure does not fire for a worker that started and then died (see the header), so the trigger repeats every minute:
+# MultipleInstances IgnoreNew makes the repeat a no-op while the worker runs and a restart within a minute once it has died.
+$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)
+$trigger.Repetition = $repeat.Repetition
 $settings  = New-ScheduledTaskSettingsSet `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
@@ -67,7 +99,13 @@ $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principa
 $limit = if ($task.Settings.ExecutionTimeLimit -eq 'PT0S') { 'unlimited (PT0S)' } else { $task.Settings.ExecutionTimeLimit }
 Write-Output 'TASK DEFINITION'
 Write-Output ("TaskName: {0}" -f $TaskName)
-Write-Output ("Trigger: at startup ({0})" -f $task.Triggers[0].CimClass.CimClassName)
+if ($perUser) {
+    Write-Output ("Trigger: at logon of {0} ({1})" -f $userId, $task.Triggers[0].CimClass.CimClassName)
+} else {
+    Write-Output ("Trigger: at startup ({0})" -f $task.Triggers[0].CimClass.CimClassName)
+}
+Write-Output ("RepeatInterval: {0}" -f $task.Triggers[0].Repetition.Interval)
+Write-Output ("RepeatDuration: {0}" -f $(if ([string]::IsNullOrEmpty($task.Triggers[0].Repetition.Duration)) { 'indefinitely' } else { $task.Triggers[0].Repetition.Duration }))
 Write-Output ("RunAs: {0}" -f $task.Principal.UserId)
 Write-Output ("LogonType: {0}" -f $task.Principal.LogonType)
 Write-Output ("RunLevel: {0}" -f $task.Principal.RunLevel)
@@ -80,14 +118,15 @@ Write-Output ("ExecutionTimeLimit: {0}" -f $limit)
 Write-Output ("MultipleInstances: {0}" -f $task.Settings.MultipleInstances)
 Write-Output ("StartWhenAvailable: {0}" -f $task.Settings.StartWhenAvailable)
 
+$scope = if ($perUser) { 'User' } else { 'Machine' }
 foreach ($name in 'DATABASE_URL', 'RELAY_DB_PATH', 'RELAY_CONFIG') {
-    $set = -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name, 'Machine'))
-    Write-Output ("Machine environment {0}: {1}" -f $name, $(if ($set) { 'set' } else { 'NOT set' }))
+    $set = -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name, $scope))
+    Write-Output ("{0} environment {1}: {2}" -f $scope, $name, $(if ($set) { 'set' } else { 'NOT set' }))
 }
 
 if ($PSCmdlet.ShouldProcess($TaskName, 'register the relay worker scheduled task')) {
     $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $admin) { throw 'Registering a task that runs as SYSTEM needs an elevated PowerShell. Re-run as administrator.' }
+    if (-not $admin -and -not $perUser) { throw 'Registering a task that runs as SYSTEM needs an elevated PowerShell. Re-run as administrator.' }
     Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
     Write-Output ("Registered task {0}." -f $TaskName)
     if (-not $NoStart) {
