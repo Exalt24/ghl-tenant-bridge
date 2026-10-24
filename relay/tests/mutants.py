@@ -136,6 +136,18 @@ T_CON = ["tests/test_contacts.py"]
 T_HIST = ["tests/test_history_import.py"]
 T_HEALTH = ["tests/test_health_check.py"]
 T_WIN = ["tests/test_windows_recovery.py"]
+_TW = "tests/test_windows_recovery.py::"
+T_WIN_DRY = [  # the dry run tests of the install script: fast, no task is registered
+    _TW + "test_the_install_script_prints_the_exact_task_definition_and_registers_nothing",
+    _TW + "test_the_per_user_dry_run_prints_a_limited_interactive_task_that_repeats_every_minute_and_registers_nothing",
+    _TW + "test_with_nostart_the_repeat_trigger_begins_later_so_registering_does_not_start_the_worker",
+    _TW + "test_the_system_dry_run_also_repeats_its_trigger_every_minute_beside_the_boot_trigger",
+    _TW + "test_the_per_user_default_python_is_the_windowless_twin_and_the_system_default_is_not",
+]
+T_WIN_REG = [  # the two tests that really call Register-ScheduledTask (the SYSTEM one is refused, the per-user one is registered and removed)
+    _TW + "test_a_system_task_is_still_refused_without_elevation_and_registers_nothing",
+    _TW + "test_the_per_user_task_registers_without_elevation_exactly_as_printed_and_the_uninstall_script_removes_it",
+]
 T_EXT = ["tests/test_extension_config.py"]
 
 MUTANTS: list[Mutant] = [
@@ -926,9 +938,24 @@ MUTANTS: list[Mutant] = [
     M("windows: the task needs a logged on user", INSTALL, ("-LogonType ServiceAccount", "-LogonType Interactive"), tests=T_WIN, platform="windows"),
     M("windows: the task is stopped after three days", INSTALL, ("-ExecutionTimeLimit ([TimeSpan]::Zero)", "-ExecutionTimeLimit (New-TimeSpan -Days 3)"), tests=T_WIN, platform="windows"),
     M("windows: the task runs the worker once, not for ever", INSTALL, ("-Argument '-m relay.worker'", "-Argument '-m relay.worker --once'"), tests=T_WIN, platform="windows"),
-    M("windows: the task has no working directory", INSTALL, (" -WorkingDirectory $RelayDir\n$trigger", "\n$trigger"), tests=T_WIN, platform="windows"),
+    M("windows: the task has no working directory", INSTALL, (" -WorkingDirectory $RelayDir\nif ($perUser) {", "\nif ($perUser) {"), tests=T_WIN, platform="windows"),
     M("windows: a second instance may start beside the first", INSTALL, ("-MultipleInstances IgnoreNew", "-MultipleInstances Parallel"), tests=T_WIN, platform="windows"),
     M("windows: the uninstall dry run claims the task exists", UNINSTALL, ("$(if ($existing) { 'yes' } else { 'no' })", "'yes'"), tests=T_WIN, platform="windows"),
+    M("windows: the per-user mode is not accepted by -RunAs", INSTALL, ("'NETWORK SERVICE', 'CurrentUser')]", "'NETWORK SERVICE')]"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the per-user task runs at the highest run level", INSTALL, ("-LogonType Interactive -RunLevel Limited", "-LogonType Interactive -RunLevel Highest"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the per-user task logs on with S4U, which a non-elevated shell cannot register", INSTALL, ("-LogonType Interactive -RunLevel Limited", "-LogonType S4U -RunLevel Limited"), tests=T_WIN_DRY + T_WIN_REG, platform="windows"),
+    M("windows: the per-user task starts at startup, not at logon", INSTALL, ("New-ScheduledTaskTrigger -AtLogOn -User $userId", "New-ScheduledTaskTrigger -AtStartup"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the per-user task runs as SYSTEM", INSTALL, ("-UserId $userId -LogonType Interactive", "-UserId 'SYSTEM' -LogonType Interactive"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the per-user task demands an elevated shell", INSTALL, ("-not $admin -and -not $perUser", "-not $admin"), tests=T_WIN_REG, platform="windows"),
+    M("windows: the SYSTEM task is registered without the elevation check", INSTALL, ("if (-not $admin -and -not $perUser) { throw", "if ($false) { throw"), tests=T_WIN_REG, platform="windows"),
+    M("windows: the trigger repeats every ten minutes, not every minute", INSTALL, ("-RepetitionInterval (New-TimeSpan -Minutes 1)", "-RepetitionInterval (New-TimeSpan -Minutes 10)"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the repeat trigger is left out of the task", INSTALL, ("-Trigger @($trigger, $repeat)", "-Trigger $trigger"), tests=T_WIN_DRY + T_WIN_REG, platform="windows"),
+    M("windows: the repeat always starts ten minutes late", INSTALL, ("$repeatFrom = if ($NoStart) { (Get-Date).AddMinutes(10) } else { Get-Date }", "$repeatFrom = (Get-Date).AddMinutes(10)"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: with -NoStart the repeat starts the worker at once", INSTALL, ("$repeatFrom = if ($NoStart) { (Get-Date).AddMinutes(10) } else { Get-Date }", "$repeatFrom = Get-Date"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the per-user default python is the console python.exe", INSTALL, ("if (Test-Path -LiteralPath $windowless) { $PythonExe = $windowless }", "if ($false) { $PythonExe = $windowless }"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: the SYSTEM default python is the windowless twin", INSTALL, ("    if ($perUser) {\n        # an Interactive task opens", "    if ($true) {\n        # an Interactive task opens"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: a per-user task reports the machine variables", INSTALL, ("$scope = if ($perUser) { 'User' } else { 'Machine' }", "$scope = 'Machine'"), tests=T_WIN_DRY, platform="windows"),
+    M("windows: a SYSTEM task reports the user variables", INSTALL, ("$scope = if ($perUser) { 'User' } else { 'Machine' }", "$scope = 'User'"), tests=T_WIN_DRY, platform="windows"),
     M("windows: a restarted worker takes a row inside the dead worker's lease", STORE, ('f"AND ({a}.claim_until IS NULL OR {a}.claim_until <= {n}) "\n', '""\n'), tests=T_WIN, platform="windows"),
 ]
 

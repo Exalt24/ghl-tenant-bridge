@@ -9,8 +9,8 @@
     - action: <python> -m relay.worker, working directory = the relay folder
     - on failure: restart every 1 minute, up to 999 times. Task Scheduler applies this only when it cannot LAUNCH the action
       (observed 2026-10-24: a launch failure was retried every minute, a process that started and exited non-zero was not)
-    - repeat the trigger every 1 minute, indefinitely: with one instance at a time the repeat does nothing while the worker runs,
-      and starts a new worker within a minute when it has died. This is what restarts a killed or crashed worker.
+    - a second trigger, once from now and repeated every 1 minute indefinitely: with one instance at a time it does nothing while
+      the worker runs, and starts a new worker within a minute when it has died. This is what restarts a killed or crashed worker.
     - no execution time limit (the Task Scheduler default of 3 days would stop the worker), one instance at a time
 
   The worker reads its settings from environment variables (DATABASE_URL or RELAY_DB_PATH, RELAY_CONFIG, and every secret the
@@ -25,8 +25,8 @@
       Windows refused it with Access is denied, because it needs the batch logon right.
     - an Interactive task opens a window for a console program, so without -PythonExe the default is pythonw.exe from the same
       folder as python.exe (no window, no console)
-    - the rest of the definition is the same: action, restart on failure every 1 minute up to 999 times, the trigger repeated every
-      1 minute, no time limit, one instance
+    - the rest of the definition is the same: action, restart on failure every 1 minute up to 999 times, the second trigger that
+      repeats every 1 minute, no time limit, one instance
     - the worker sees the current user's USER level environment variables (set them with
       [Environment]::SetEnvironmentVariable('NAME', 'value', 'User')), and nothing is read from the machine level
   It only runs while that user's tasks can run, so it is not a replacement for the SYSTEM task on a server.
@@ -85,15 +85,17 @@ if ($perUser) {
     $trigger   = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId $RunAs -LogonType ServiceAccount -RunLevel Highest
 }
-# Restart on failure does not fire for a worker that started and then died (see the header), so the trigger repeats every minute:
-# MultipleInstances IgnoreNew makes the repeat a no-op while the worker runs and a restart within a minute once it has died.
-$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1)
-$trigger.Repetition = $repeat.Repetition
+# Restart on failure does not fire for a worker that started and then died (see the header), so a second, time based trigger fires
+# every minute from now on: MultipleInstances IgnoreNew makes it a no-op while the worker runs and a restart within a minute once it
+# has died. (A repetition set on the logon or boot trigger itself only counts from the next logon or boot, not from registration.)
+# With -NoStart the repeat begins 10 minutes from now, so registering does not start the worker behind the operator's back.
+$repeatFrom = if ($NoStart) { (Get-Date).AddMinutes(10) } else { Get-Date }
+$repeat = New-ScheduledTaskTrigger -Once -At $repeatFrom -RepetitionInterval (New-TimeSpan -Minutes 1)
 $settings  = New-ScheduledTaskSettingsSet `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
     -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
+$task = New-ScheduledTask -Action $action -Trigger @($trigger, $repeat) -Principal $principal -Settings $settings `
     -Description 'relay worker: drains deliveries, restarts itself after a failure'
 
 $limit = if ($task.Settings.ExecutionTimeLimit -eq 'PT0S') { 'unlimited (PT0S)' } else { $task.Settings.ExecutionTimeLimit }
@@ -104,8 +106,10 @@ if ($perUser) {
 } else {
     Write-Output ("Trigger: at startup ({0})" -f $task.Triggers[0].CimClass.CimClassName)
 }
-Write-Output ("RepeatInterval: {0}" -f $task.Triggers[0].Repetition.Interval)
-Write-Output ("RepeatDuration: {0}" -f $(if ([string]::IsNullOrEmpty($task.Triggers[0].Repetition.Duration)) { 'indefinitely' } else { $task.Triggers[0].Repetition.Duration }))
+Write-Output ("RepeatTrigger: {0}" -f $task.Triggers[1].CimClass.CimClassName)
+Write-Output ("RepeatInterval: {0}" -f $task.Triggers[1].Repetition.Interval)
+Write-Output ("RepeatStart: {0}" -f ([datetime]$task.Triggers[1].StartBoundary).ToString('yyyy-MM-ddTHH:mm:ss'))
+Write-Output ("RepeatDuration: {0}" -f $(if ([string]::IsNullOrEmpty($task.Triggers[1].Repetition.Duration)) { 'indefinitely' } else { $task.Triggers[1].Repetition.Duration }))
 Write-Output ("RunAs: {0}" -f $task.Principal.UserId)
 Write-Output ("LogonType: {0}" -f $task.Principal.LogonType)
 Write-Output ("RunLevel: {0}" -f $task.Principal.RunLevel)

@@ -8,6 +8,8 @@ reason, and it runs on the Windows machine this relay is deployed to.
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import re
 import shutil
@@ -70,6 +72,7 @@ def test_the_install_script_prints_the_exact_task_definition_and_registers_nothi
     assert d["ExecutionTimeLimit"].startswith("unlimited")  # the 3 day default would stop a worker that is meant to run for ever
     assert d["MultipleInstances"] == "IgnoreNew" and d["StartWhenAvailable"] == "True"
     assert "What if: Performing the operation" in res.stdout and name in res.stdout
+    assert "Machine environment RELAY_CONFIG: " in res.stdout  # a SYSTEM task reads machine variables
     assert not task_exists(name)  # nothing was registered on this machine
 
 
@@ -89,6 +92,108 @@ def test_the_install_script_refuses_a_wrong_python_folder_or_account_before_it_r
     res = powershell("install-service.ps1", "-WhatIf", *args)
     assert res.returncode != 0 and message in (res.stdout + res.stderr)
     assert "TASK DEFINITION" not in res.stdout  # the definition is only printed for a setup that is sound
+
+
+def is_elevated() -> bool:
+    res = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command",
+         "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+    )
+    return res.stdout.strip() == "True"
+
+
+def registered(name: str) -> dict:
+    """The task as Task Scheduler stored it, read back with Get-ScheduledTask."""
+    script = (
+        f"$t = Get-ScheduledTask -TaskName '{name}'; [pscustomobject]@{{user=$t.Principal.UserId; logon=[string]$t.Principal.LogonType; "
+        "run=[string]$t.Principal.RunLevel; rc=$t.Settings.RestartCount; ri=[string]$t.Settings.RestartInterval; mi=[string]$t.Settings.MultipleInstances; "
+        "exe=$t.Actions[0].Execute; n=@($t.Triggers).Count; first=$t.Triggers[0].CimClass.CimClassName; rep=[string]$t.Triggers[1].Repetition.Interval; "
+        "start=[string]$t.Triggers[1].StartBoundary; state=[string]$t.State } | ConvertTo-Json -Compress"
+    )
+    res = subprocess.run([POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    assert res.returncode == 0, res.stderr
+    return json.loads(res.stdout)
+
+
+def test_the_per_user_dry_run_prints_a_limited_interactive_task_that_repeats_every_minute_and_registers_nothing():
+    name = "RelayWorkerTest-" + uuid.uuid4().hex[:8]
+    res = powershell("install-service.ps1", "-WhatIf", "-RunAs", "CurrentUser", "-TaskName", name, "-PythonExe", sys.executable)
+    assert res.returncode == 0, res.stderr
+    d = definition(res.stdout)
+    user = os.environ["USERNAME"].lower()
+    assert d["TaskName"] == name
+    assert d["Trigger"].startswith("at logon of") and "LogonTrigger" in d["Trigger"]  # at logon of this user, not at startup
+    assert d["RunAs"].lower().endswith("\\" + user) and d["RunAs"].lower() != "system"  # the current user
+    assert d["LogonType"] == "Interactive"  # S4U was refused by Windows (Access is denied) from a non-elevated shell
+    assert d["RunLevel"] == "Limited"  # so registering needs no elevation
+    assert d["Execute"].lower() == sys.executable.lower() and d["Arguments"] == "-m relay.worker"
+    assert d["WorkingDirectory"] and Path(d["WorkingDirectory"]).resolve() == RELAY.resolve()
+    assert d["RestartCount"] == "999" and d["RestartInterval"] == "PT1M"
+    assert d["ExecutionTimeLimit"].startswith("unlimited")
+    assert d["MultipleInstances"] == "IgnoreNew"
+    # the trigger that really restarts a dead worker: restart on failure only retries a launch failure (observed 2026-10-24)
+    assert d["RepeatTrigger"].endswith("TimeTrigger") and d["RepeatInterval"] == "PT1M" and d["RepeatDuration"] == "indefinitely"
+    assert abs((datetime.datetime.fromisoformat(d["RepeatStart"]) - datetime.datetime.now()).total_seconds()) < 180  # counts from now
+    assert "User environment RELAY_CONFIG: " in res.stdout and "Machine environment" not in res.stdout  # a user task reads user variables
+    assert "What if: Performing the operation" in res.stdout and name in res.stdout
+    assert not task_exists(name)  # nothing was registered
+
+
+@pytest.mark.parametrize("run_as", ["CurrentUser", "SYSTEM"])
+def test_with_nostart_the_repeat_trigger_begins_later_so_registering_does_not_start_the_worker(run_as):
+    res = powershell("install-service.ps1", "-WhatIf", "-NoStart", "-RunAs", run_as, "-PythonExe", sys.executable)
+    assert res.returncode == 0, res.stderr
+    start = datetime.datetime.fromisoformat(definition(res.stdout)["RepeatStart"])
+    assert 300 < (start - datetime.datetime.now()).total_seconds() < 900
+
+
+def test_the_system_dry_run_also_repeats_its_trigger_every_minute_beside_the_boot_trigger():
+    res = powershell("install-service.ps1", "-WhatIf", "-PythonExe", sys.executable)
+    d = definition(res.stdout)
+    assert "BootTrigger" in d["Trigger"] and d["RepeatTrigger"].endswith("TimeTrigger")
+    assert d["RepeatInterval"] == "PT1M" and d["RepeatDuration"] == "indefinitely"
+
+
+def test_the_per_user_default_python_is_the_windowless_twin_and_the_system_default_is_not():
+    user = definition(powershell("install-service.ps1", "-WhatIf", "-RunAs", "CurrentUser").stdout)["Execute"]
+    system = definition(powershell("install-service.ps1", "-WhatIf").stdout)["Execute"]
+    twin = Path(system).with_name("pythonw.exe")
+    if not twin.exists():
+        pytest.skip("no pythonw.exe next to the default python.exe on this machine")
+    assert user.lower() == str(twin).lower()  # an Interactive task would open a console window for python.exe
+    assert system.lower().endswith("python.exe")  # a service account has no desktop, so the SYSTEM default is unchanged
+
+
+def test_a_system_task_is_still_refused_without_elevation_and_registers_nothing():
+    if is_elevated():
+        pytest.skip("this shell is elevated: the refusal cannot be shown, and a real SYSTEM task must not be registered by a test")
+    name = "RelayWorkerTest-" + uuid.uuid4().hex[:8]
+    try:
+        res = powershell("install-service.ps1", "-NoStart", "-TaskName", name, "-PythonExe", sys.executable)
+        assert res.returncode != 0 and "needs an elevated PowerShell" in (res.stdout + res.stderr)
+    finally:
+        if task_exists(name):
+            powershell("uninstall-service.ps1", "-TaskName", name)
+    assert not task_exists(name)
+
+
+def test_the_per_user_task_registers_without_elevation_exactly_as_printed_and_the_uninstall_script_removes_it():
+    name = "RelayWorkerTest-" + uuid.uuid4().hex[:8]
+    try:
+        res = powershell("install-service.ps1", "-RunAs", "CurrentUser", "-NoStart", "-TaskName", name, "-PythonExe", sys.executable)
+        assert res.returncode == 0, res.stderr  # no elevation was needed (this is the guard: S4U and a Highest run level both fail here)
+        assert f"Registered task {name}." in res.stdout and "Started task" not in res.stdout
+        t = registered(name)
+        assert t["user"].lower().endswith("\\" + os.environ["USERNAME"].lower()) or t["user"].lower() == os.environ["USERNAME"].lower()
+        assert t["logon"] == "Interactive" and t["run"] == "Limited"
+        assert t["rc"] == 999 and t["ri"] == "PT1M" and t["mi"] == "IgnoreNew"
+        assert t["exe"].lower() == sys.executable.lower()
+        assert t["n"] == 2 and "LogonTrigger" in t["first"] and t["rep"] == "PT1M"
+        assert t["state"] != "Running"  # -NoStart: nothing started, and the repeat trigger is not due for ten minutes
+    finally:
+        powershell("uninstall-service.ps1", "-TaskName", name)
+    assert not task_exists(name)
 
 
 def test_the_uninstall_script_dry_run_changes_nothing_and_a_missing_task_is_not_an_error():
