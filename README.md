@@ -111,9 +111,8 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/app/capture/page.tsx` | The field capture surface. Downscales, stamps GPS at capture, queues locally. |
 | `src/lib/outbox.ts` | The queue. UUIDv7 keys minted at capture, single-flight flush, proof-of-write guard. |
 | `src/lib/outbox-storage-browser.ts` | OPFS for bytes, IndexedDB for metadata, with a fallback because Safari lacked `createWritable` until 26. |
-| `src/lib/outbox-runtime.ts` | Registers the flush triggers. Page-driven, because iOS has no background path. |
-| `src/lib/outbox-transport-supabase.ts` | The Supabase transport. Derives the row count from a PostgREST `.select()`. |
-| `src/lib/outbox-transport-http.ts` | Reference transport for a non-Supabase backend. |
+| `src/lib/outbox-runtime.ts` | Registers the flush triggers, page-driven because iOS has no background path. |
+| `src/lib/outbox-transport-*.ts` | The Supabase transport (row count from a PostgREST `.select()`) and a reference HTTP one. |
 | `supabase/migrations/0002_postgis.sql` | Spherical storm-to-property matching. Generated geography columns, GiST, `SECURITY INVOKER` so RLS applies. |
 | `supabase/migrations/0005_farm_lists.sql` | Farm lists of GPS points and polygons: every plot gets a status and a reason code, and `plot_overlaps` gives hectares and percent against a reference layer on geography. See [Farm lists](#farm-lists). |
 | `src/lib/geocode.ts` | US Census geocoding, keyless. Honest that it returns a block-face interpolation, not a rooftop. |
@@ -123,11 +122,10 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/noaa.ts` / `src/lib/swdi.ts` | Live NWS alerts and historical hail via NCEI SWDI, both keyless. |
 | `src/app/api/webhooks/ghl/route.ts` | The receiver: verify, replay window, tenant resolve, idempotency, apply, dead-letter. |
 | `edge/` | A Cloudflare Worker that verifies GHL's Ed25519 signature, stores each delivery once in D1 and forwards it on a cron with backoff. Its own tests, including real workerd. See [edge/README.md](edge/README.md). |
-| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local fakes, no vendor account was used except one check of the Google Sheets calls with my own sign-in, and it is not deployed. Its own README holds the per integration register of what ran and what did not. See [relay/README.md](relay/README.md). |
+| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local fakes, no vendor account was used except one check of the Google Sheets calls with my own sign-in, and it is not deployed. A CSV history import and a suppression list stop a repeat send. The worker installs as a Windows scheduled task that restarts itself, and a health check alerts when its heartbeat goes stale. Its own README holds the per integration register of what ran and what did not. See [relay/README.md](relay/README.md). |
 | `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Offline plan, 28 guard test runs and 49 mutants, never applied. See [infra/README.md](infra/README.md). |
 | `graphql/` | Hasura GraphQL Engine over the PostGIS schema, with a per-organisation permission rule and a smoke test against real containers. See [graphql/README.md](graphql/README.md). |
-| `docs/INTEGRATION_CONTRACT.md` | Token classes, limits, failure matrix, known gaps. |
-| `docs/DEMO_PORTABILITY.md` | What is free and permanent vs what expires or costs money. |
+| `docs/` | `INTEGRATION_CONTRACT.md` (token classes, limits, failure matrix) and `DEMO_PORTABILITY.md` (what is free vs what expires or costs money). |
 
 ---
 
@@ -166,11 +164,8 @@ needs a local `pgis` container, `outbox.browser.mjs` needs Playwright, and
 `offline-drain.e2e.mjs` needs a running server.
 
 The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a
-fresh clone and all passed with the printed counts (signature 19, workflow-auth 22, noaa
-17, swdi 23, geo 31, outbox 56, outbox browser 33, postgis 25, offline drain
-10, which sum to 236). The remaining 27 assertions are in `verify_oauth_claims.py` and
-`hosted-supabase.e2e.mjs`, which need the gitignored token files and the hosted
-Supabase project, plus the two suites that report pass or fail only.
+fresh clone and all passed with the printed counts (236 assertions in all). The rest
+need the gitignored token files and the hosted Supabase project.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
 Reverting the coordinate order in `0002_postgis.sql` produces 5 failures, including the
@@ -236,7 +231,6 @@ Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_S
 
 ## Known gaps
 
-Listed because a README that only lists strengths is not information.
 
 - **Not deployed.** It runs locally. No hosted instance, no users.
 - **iOS is documentation, not measurement.** The browser suite is Chromium on Windows.
@@ -249,9 +243,7 @@ Listed because a README that only lists strengths is not information.
   is real; a production write is not claimed.
 - **The workflow path is unsigned** and cannot be made otherwise. Prefer Marketplace app
   webhooks, which are free, signed, retried and logged.
-- **Roof geometry is not solved here.** Ridge, hip and valley measurement has no free
-  and legal source; the honest routes are per-report vendors or a lidar pipeline that
-  nobody has published.
+- **Roof geometry is not solved here.** Ridge, hip and valley measurement has no free and legal source.
 - **Google imagery is off-limits** for this shape of product: its terms forbid tracing
   or digitising building outlines, forbid training models on it, and forbid mixing it
   with a non-Google basemap.
