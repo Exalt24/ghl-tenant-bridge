@@ -257,7 +257,7 @@ def main() -> int:
         inside = store.delivery(victim.event_id, "slack")
         expect(inside["state"] == "pending" and slack.effects == 0, "inside the dead worker's lease nobody may take the row, so there is no duplicate")
         wait_for(lambda: store.delivery(victim.event_id, "slack")["state"] == "done", timeout=60, what="the lease to run out")
-        expect(slack.effects == 1, "after the lease the new worker delivered it exactly once")
+        expect(slack.effects == 1, "after the lease the new worker delivered it once (the held request was never accepted before the kill)")
         expect(second_w.proc.poll() is None, "and it is still running")
 
         # ---------------------------------------------------------------------------------------------------------------

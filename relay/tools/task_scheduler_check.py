@@ -19,7 +19,7 @@ path needs an elevated shell and is not run here.
 What it does, in order: a temporary SQLite file and a fake Slack sink on 127.0.0.1 (this process, one thread), the worker's settings
 as USER level environment variables (a task that runs as the current user sees them), the task `RelayWorkerExercise`, one control
 delivery that must arrive, one delivery the sink holds open, a hard kill (Stop-Process -Force) of the worker's PID found under
-the Task Scheduler service, then a wait for Task Scheduler's own restart and for the held delivery to reach the sink exactly once
+the Task Scheduler service, then a wait for Task Scheduler's own restart and for the held delivery to reach the sink once (the fake Slack never accepted it before the kill, so this covers an unsent claim only)
 after its lease. It always removes the task, the variables, the sink and any worker it started, by PID.
 
 Skips with a message (exit 0) on a system that is not Windows or where Task Scheduler cannot be queried. Exit 1 is a FAIL.
@@ -498,7 +498,7 @@ def main() -> int:
         if not args.keep_logs:
             shutil.rmtree(workdir, ignore_errors=True)
     result = "PASS" if passed and cleaned else "FAIL"
-    print(f"\n{result}: Task Scheduler {'restarted the killed worker and the delivery reached the sink exactly once' if passed else 'check did not complete as expected'}"
+    print(f"\n{result}: Task Scheduler {'restarted the killed worker and the unsent delivery reached the sink once' if passed else 'check did not complete as expected'}"
           f"; cleanup {'complete' if cleaned else 'INCOMPLETE'}.")
     return 0 if result == "PASS" else 1
 

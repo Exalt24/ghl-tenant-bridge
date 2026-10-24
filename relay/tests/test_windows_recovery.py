@@ -1,6 +1,6 @@
 """The worker as a Windows scheduled task: what the install script would register (`-WhatIf`, nothing is registered), and the
 recovery that Task Scheduler's restart on failure relies on, run for real against a child process: the worker is killed hard in the
-middle of a claimed delivery, started again, and the delivery is completed exactly once after its lease has run out.
+middle of a claimed delivery, started again, and the delivery is completed once after its lease has run out (the fake Slack never accepted it before the kill, so this covers an unsent claim only).
 
 Windows only: the install script and TerminateProcess are Windows things. On any other system the whole file is skipped with that
 reason, and it runs on the Windows machine this relay is deployed to.
