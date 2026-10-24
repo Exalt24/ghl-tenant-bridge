@@ -239,3 +239,29 @@ def test_python_comments_use_no_dashes_as_connectors():
             if "—" in line or "–" in line:
                 bad.append(f"{p.relative_to(RELAY)}:{n}")
     assert bad == []
+
+
+# A claim of "exactly once" about a delivery is only true when the provider never accepted the request. Slack and Make are sent again after an
+# accepted send loses its acknowledgment (tests/test_crash_and_concurrency.py asserts that second send), so every statement of it in the docs and
+# the tools must carry its limit on the same line.
+EXACTLY_ONCE = re.compile(r"exactly[- ]once", re.IGNORECASE)
+LIMIT_WORDS = re.compile(r"NOT exactly|never exactly|never accepted|not accepted|unsent|held|fake saw|property|every row|every id|occurs exactly", re.IGNORECASE)
+
+
+def _exactly_once_lines(text: str):
+    return [ln for ln in text.splitlines() if EXACTLY_ONCE.search(ln) and not LIMIT_WORDS.search(ln)]
+
+
+def test_no_doc_or_tool_claims_exactly_once_without_its_limit():
+    bad = []
+    for sub in ("docs", "tools"):
+        for path in (RELAY / sub).rglob("*"):
+            if path.suffix in (".md", ".py") and not (SKIP_PARTS & set(path.parts)):
+                bad += [f"{path.relative_to(RELAY)}: {ln.strip()[:90]}" for ln in _exactly_once_lines(path.read_text(encoding="utf-8", errors="ignore"))]
+    assert not bad, "exactly once claimed without its limit:\n" + "\n".join(bad)
+
+
+def test_the_exactly_once_scan_catches_a_bare_claim_and_passes_the_limited_one():
+    assert _exactly_once_lines("the delivery goes out exactly once.")
+    assert not _exactly_once_lines("the delivery goes out once; it is NOT exactly once for Slack")
+    assert not _exactly_once_lines("the held request was never accepted, so it went out exactly once")

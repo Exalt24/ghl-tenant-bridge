@@ -132,7 +132,7 @@ def run(name: str, port: int, image: str) -> None:
     lines = fake_lines(name)
     if len(lines) != 1 or LEAD_NAME not in json.dumps(lines[0]):
         raise SmokeFailure(f"the fake Slack saw {len(lines)} messages and not exactly one with the lead: {lines}")
-    print("PASS  the inline worker delivered the lead to the fake Slack exactly once")
+    print("PASS  the inline worker delivered the lead to the fake Slack once, in a clean run with no crash")
 
     status, body = post_lead(port, "smoke-1")
     if status != 200 or not body or body.get("duplicate") is not True:
