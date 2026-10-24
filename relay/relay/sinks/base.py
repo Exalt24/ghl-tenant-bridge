@@ -69,6 +69,13 @@ class Outcome:
         return Outcome(DEAD, status=status, reason=reason)
 
     @staticmethod
+    def held(reason: str, status: int | None = None) -> "Outcome":
+        """A send that may have landed on a vendor with no idempotency key and no lookup, when the sink is configured to
+        hold such a send. Stored as a dead delivery whose reason starts `held:` so an operator checks the destination and
+        then replays it on purpose. Nothing retries it."""
+        return Outcome(DEAD, status=status, reason=f"held: {reason}", effect_ref="held", maybe_acted=True)
+
+    @staticmethod
     def skipped(reason: str, alert: bool = False) -> "Outcome":
         return Outcome(SKIPPED, reason=reason, alert=alert)
 

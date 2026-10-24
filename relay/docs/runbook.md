@@ -10,6 +10,12 @@ The Worker retries a failed forward with backoff and marks a row dead after 6 at
 wrangler d1 execute ghl-edge --remote --command "UPDATE inbox SET state = 'pending', attempts = 0, next_at = CAST(strftime('%s','now') AS INTEGER) * 1000, claim_until = NULL, last_error = NULL WHERE state = 'dead';"
 ```
 
+## A held send
+
+A sink with `hold_unresolved: true` (Slack and Make; see `docs/configuration.md`) never sends a message a second time on its own. An ambiguous answer, a timeout or a 5xx after the vendor may have posted, is stored as a dead delivery whose error starts with `held:`, with an alert. So is a row that was claimed, may have posted, and then lost its worker before the final write.
+
+A held row also appears for a worker that died BEFORE it sent, because nothing can tell the two apart afterwards. That is the price of the option: an operator takes the full event id from the `deliveries` or `alerts` table, looks in the destination channel or the scenario history for its first 8 characters (Slack's footer carries them), and then either leaves the row or replays it with `POST /admin/replay` and the admin token (`{"event_id": ..., "sink": "slack"}`). A replay is the operator's decision to send it again, resets the row, and sends it once more.
+
 ## Retention
 
 An event payload is nulled after 30 days by `python -m relay.worker --purge`, which keeps the event row so a late retry is still a duplicate. Nothing schedules it yet: run it from a cron style service that has Postgres.

@@ -149,8 +149,20 @@ T_WIN_REG = [  # the two tests that really call Register-ScheduledTask (the SYST
     _TW + "test_the_per_user_task_registers_without_elevation_exactly_as_printed_and_the_uninstall_script_removes_it",
 ]
 T_EXT = ["tests/test_extension_config.py"]
+T_HOLD = ["tests/test_hold_unresolved.py"]
 
 MUTANTS: list[Mutant] = [
+    # ---- hold_unresolved: a send that may have landed, on a vendor that cannot be asked, is not sent again --------------
+    M("hold: an ambiguous answer is retried instead of held", FAN,
+      ("        elif outcome.kind == AMBIGUOUS and holds:\n", "        elif False:\n"), tests=T_HOLD),
+    M("hold: a row whose earlier claim may have posted is sent again", FAN,
+      ("    if holds and (claim.maybe_acted_before or claim.prior_claim_lost):", "    if False:"), tests=T_HOLD),
+    M("hold: the option also holds a sink that can read back", FAN,
+      ("    holds = scfg.hold_unresolved and not sink.can_reconcile", "    holds = scfg.hold_unresolved"), tests=T_HOLD),
+    M("hold: the Sheets sink stops declaring that it can read back", SHT,
+      ("    can_reconcile = True", "    can_reconcile = False"), tests=T_HOLD),
+    M("hold: the option is read but never applied from the config", CFG,
+      ("                hold_unresolved=_flag(s, \"hold_unresolved\", where),\n", ""), tests=T_HOLD),
     # ---- ingest and the store ----------------------------------------------------------------------------------------
     M("delivery rows inserted outside the ingest transaction", STORE,
       ("            self._add_deliveries(t, event_id, tenant, sinks)\n            if on_new is not None:\n                on_new(t)\n            return IngestResult(event_id, False)",

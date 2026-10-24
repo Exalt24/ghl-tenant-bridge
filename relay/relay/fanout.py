@@ -8,6 +8,10 @@ Retry accounting, the part most easily gotten wrong:
   AMBIGUOUS  the vendor may have acted. Spends the budget (6), because every try can duplicate. The tries are spread over
              at least 4.5 hours (see ambiguous_backoff_s) so an ordinary vendor incident does not spend them.
   PAUSE      a tenant level fault (revoked hook, 403). The lead stays pending, the sink pauses for that tenant.
+  HELD       opt in per sink (`hold_unresolved`), for a vendor with no idempotency key and no lookup (Slack, Make). An
+             AMBIGUOUS answer, or a row whose earlier claim may have posted (the worker died before its final write), is
+             NOT sent again: it is stored dead with a `held:` reason and an alert, and an operator replays it after
+             looking at the destination. Without the option those sinks retry and can duplicate.
 """
 
 from __future__ import annotations
@@ -220,10 +224,17 @@ def _attempt(ctx: RunContext, claim: Claim, scfg: SinkCfg, sink: Sink, event_row
     refused = _contact_refusal(ctx, claim, event)
     if refused is not None:
         return refused, False
+    holds = scfg.hold_unresolved and not sink.can_reconcile
+    if holds and (claim.maybe_acted_before or claim.prior_claim_lost):
+        # An earlier try may have posted (an ambiguous answer, or a worker that died before its final write) and this
+        # vendor cannot be asked, so sending again could message the same person twice: nothing is sent.
+        return Outcome.held("an earlier try may have been sent and this destination cannot confirm it"), False
     try:
         outcome = sink.send(event, ctx.http, sctx)
         if outcome.kind == AMBIGUOUS and sink.can_reconcile:
             outcome = _resolve(sink, event, ctx.http, sctx, outcome)
+        elif outcome.kind == AMBIGUOUS and holds:
+            outcome = Outcome.held("the destination may have accepted it and cannot confirm", status=outcome.status)
         return outcome, outcome.kind != SKIPPED
     except Exception as exc:
         log.error("sink %s raised %s", claim.sink, type(exc).__name__, exc_info=True)

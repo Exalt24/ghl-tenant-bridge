@@ -37,7 +37,7 @@ DEFAULT_PULL_DAYS = 28
 MAX_PULL_DAYS = 365
 
 LITERAL_SECRET_KEYS = {"url", "webhook_url", "token", "secret", "apikey", "api_key", "password", "workflow_secret"}
-SINK_KEYS = {"enabled", "url_env", "apikey_env", "timeout_s", "min_interval_s", "pause_s", "max_age_s", "env", "options"}
+SINK_KEYS = {"enabled", "url_env", "apikey_env", "timeout_s", "min_interval_s", "pause_s", "max_age_s", "hold_unresolved", "env", "options"}
 TENANT_KEYS = {"workflow_secret_env", "dedupe_window_s", "dedupe_mode", "max_body_bytes", "sinks", "ghl_timestamp_window", "fathom", "pulls"}
 FATHOM_KEYS = {"secret_env", "tolerance_s", "max_body_bytes", "slack"}
 # What each pull may name. `*_env` keys hold the NAME of an environment variable, never a value.
@@ -75,6 +75,8 @@ class SinkCfg:
     min_interval_s: float
     pause_s: float
     max_age_s: float
+    # True: a send that may have landed and cannot be looked up is held for an operator instead of retried (see fanout).
+    hold_unresolved: bool = False
     # The literal options plus the values of the environment variables the sink's `env` map named, as the sink reads
     # them from its context. `secrets` is every value among them that must never reach a log line or a database column.
     extra: dict[str, Any] = field(default_factory=dict)
@@ -387,6 +389,7 @@ def load_config(environ: Mapping[str, str] | None = None, role: str = "web") -> 
                 min_interval_s=_positive(s, "min_interval_s", d["min_interval_s"], where),
                 pause_s=_positive(s, "pause_s", d["pause_s"], where),
                 max_age_s=_positive(s, "max_age_s", d["max_age_s"], where),
+                hold_unresolved=_flag(s, "hold_unresolved", where),
                 extra={**checked, **env_values},
                 secrets=cls.secret_values(env_values),
             )

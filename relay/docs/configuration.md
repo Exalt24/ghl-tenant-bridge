@@ -20,7 +20,7 @@ Back to the [relay README](../README.md).
 
 ## Sinks
 
-Each tenant lists its sinks under `sinks`. Every sink takes `url_env` (the name of the variable holding its URL) and the optional `enabled`, `timeout_s`, `min_interval_s`, `pause_s` and `max_age_s`. An identifier or key material (a pixel id, a spreadsheet id, a service account) is never written in `options`: it goes in the sink's `env` map as the name of an environment variable, and the config is refused if a literal one is found.
+Each tenant lists its sinks under `sinks`. Every sink takes `url_env` (the name of the variable holding its URL) and the optional `enabled`, `timeout_s`, `min_interval_s`, `pause_s`, `max_age_s` and `hold_unresolved`. `hold_unresolved` is `true` or `false` (default `false`) and only changes a sink that cannot read back what it sent (Slack, Make): with it on, an ambiguous answer is held for an operator instead of retried, and so is a row whose earlier claim may have posted. A sink that can look the send up (Google Sheets) is unchanged. An identifier or key material (a pixel id, a spreadsheet id, a service account) is never written in `options`: it goes in the sink's `env` map as the name of an environment variable, and the config is refused if a literal one is found.
 
 | sink | `url_env` points at | `apikey_env` | `env` (names of variables) | `options` |
 |---|---|---|---|---|
