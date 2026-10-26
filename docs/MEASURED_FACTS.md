@@ -1,6 +1,6 @@
 ## Measured facts
 
-Everything here was verified on this machine, not read in a doc.
+Everything here was verified on this machine, not read in a doc, except the browser and iOS facts (Safari and the seven day eviction), which are cited from vendor documentation.
 
 ### A bounding box is the wrong shape for a radius
 

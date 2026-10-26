@@ -8,13 +8,12 @@
 
 Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup.
 
-Built by driving the real APIs rather than reading about them. **Every number below was
-measured on this machine, and where something is unimplemented it is listed as a gap
-rather than glossed.**
+Built by driving the real APIs rather than reading about them. **Measured numbers were measured on
+this machine; browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
 
-- **13 test suites, 263 counted assertions** (the 11 suites that print a count; the
-  other two, the published-keys diff and the live tenant isolation check, report pass
-  or fail), run against a real Postgres, a real browser and live third-party APIs. The
+- **12 test suites that print a count, 324 counted assertions in all** (the
+  published-keys diff and the live tenant isolation check report pass or fail, and the
+  edge worker has its own tests), run against a real Postgres, a real browser and live third-party APIs. The
   per-suite counts are listed under Tests.
 - The suites that touch a live service run a **positive control before the negative
   test**, so a broken request cannot pass for a successful refusal.
@@ -43,7 +42,7 @@ PASS  four photos captured with NO connection
 PASS  all four are in the queue
 PASS  the server received NOTHING while offline
 PASS  the queue drained to empty after reconnecting
-PASS  the server actually received the uploads      (9 POSTs, 15,568 bytes)
+PASS  the server actually received the uploads      (abridged)
 PASS  no orphaned photo bytes left on the device
 ```
 
@@ -92,9 +91,9 @@ only. The queue is a plain list with real buttons, never a listbox holding butto
 
 ## The finding worth reading first
 
-**HighLevel deprecated the legacy `X-WH-Signature` webhook header on 2026-09-01.** Since
+**HighLevel announced that the legacy `X-WH-Signature` webhook header is deprecated on 2026-09-01.** From
 that date webhooks are signed only with `X-GHL-Signature` (Ed25519). Any integration
-verifying just the legacy RSA header stopped validating on that date, quietly.
+verifying just the legacy RSA header stops validating then (announced by the vendor, not observed here).
 
 This bridge is dual-path, prefers Ed25519, and **fails closed** on a legacy signature
 presented after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset` so
@@ -122,16 +121,16 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/noaa.ts` / `src/lib/swdi.ts` | Live NWS alerts and historical hail via NCEI SWDI, both keyless. |
 | `src/app/api/webhooks/ghl/route.ts` | The receiver: verify, replay window, tenant resolve, idempotency, apply, dead-letter. |
 | `edge/` | A Cloudflare Worker that verifies GHL's Ed25519 signature, stores each delivery once in D1 and forwards it on a cron with backoff. Its own tests, including real workerd. See [edge/README.md](edge/README.md). |
-| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local fakes, no vendor account was used except one check of the Google Sheets calls with my own sign-in, and it is not deployed. A CSV history import and a suppression list stop a repeat send. The worker installs as a Windows scheduled task that restarts itself, and a health check alerts when its heartbeat goes stale. Its own README holds the per integration register of what ran and what did not. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
+| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local fakes, no vendor account was used except one check of the Google Sheets calls with my own sign-in, and it is not deployed.. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
 | `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Offline plan, 28 guard test runs and 49 mutants, never applied. See [infra/README.md](infra/README.md). |
 | `graphql/` | Hasura GraphQL Engine over the PostGIS schema, with a per-organisation permission rule and a smoke test against real containers. See [graphql/README.md](graphql/README.md). |
-| `docs/` | `INTEGRATION_CONTRACT.md` (token classes, limits, failure matrix) and `DEMO_PORTABILITY.md` (what is free vs what expires or costs money). |
+| `docs/` | `INTEGRATION_CONTRACT.md` and `DEMO_PORTABILITY.md`. |
 
 ---
 
 ## Measured facts
 
-Every number here was measured on this machine; the full list, with the geocoding, parcel, browser and HighLevel findings, is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md).
+The numbers here were measured on this machine, except browser and iOS facts cited from vendor docs; the full list, with the geocoding, parcel, browser and HighLevel findings, is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md).
 
 ---
 
@@ -147,7 +146,7 @@ node tests/swdi.test.mjs           # 23  live SWDI, bbox proven both ways
 node tests/geo.test.mjs            # 31  live Census + live county parcels
 node tests/outbox.test.mjs         # 56  state machine, all deps injected
 node tests/outbox.browser.mjs      # 33  real Chromium, survives a reload
-node tests/offline-drain.e2e.mjs   # 10  capture offline, reconnect, queue empties
+node tests/offline-drain.e2e.mjs   # 9   capture offline, reconnect, queue empties
 python tests/postgis.test.py        # 25  real migrations on real Postgres
 python tests/farm_lists.test.py     # 61  farm-list intake on real PostGIS
 
@@ -158,18 +157,18 @@ python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
 node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
-Four suites need something a fresh clone may not have and **skip loudly** rather than
-failing: `verify_oauth_claims.py` needs the gitignored token files, `postgis.test.py`
-needs a local `pgis` container, `outbox.browser.mjs` needs Playwright, and
-`offline-drain.e2e.mjs` needs a running server.
+Six suites skip loudly on a fresh clone: `verify_oauth_claims.py` (gitignored token files), `postgis.test.py` and
+`farm_lists.test.py` (a local `pgis` container), `hosted-supabase.e2e.mjs` (the hosted project's settings),
+`outbox.browser.mjs` (Playwright at a fixed global npm path, to change on another machine) and
+`offline-drain.e2e.mjs` (Playwright the same way, plus `next start -p 3111`).
 
 The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a
-fresh clone and all passed with the printed counts (236 assertions in all). The rest
+fresh clone and all passed with the printed counts (236 assertions in all; log not kept). The rest
 need the gitignored token files and the hosted Supabase project.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
-Reverting the coordinate order in `0002_postgis.sql` produces 5 failures, including the
-40 km property collapsing to 4.75 km.
+Reverting the coordinate order in `0002_postgis.sql` produced 5 failures, including the
+40 km property collapsing to 4.75 km (checked once, not a saved mutant).
 
 Some tests exist because of a specific mistake:
 
@@ -191,7 +190,7 @@ Some tests exist because of a specific mistake:
 npm install
 cp .env.example .env.local          # then fill in
 
-# apply the schema to any Postgres 17 with PostGIS available
+# Supabase, or Postgres 17 with PostGIS plus tests/supabase_shim.sql (auth.uid()); apply 0001 to 0005 in order
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0001_schema.sql
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0002_postgis.sql
 
