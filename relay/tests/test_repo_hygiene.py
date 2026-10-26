@@ -204,9 +204,14 @@ def test_the_readme_says_no_real_vendor_account_was_used_and_never_calls_a_doc_i
         pytest.fail(f"overclaim in the README: {m.group(0)!r}")
 
 
-def test_the_readme_states_the_relay_counts_apart_from_the_existing_263_with_a_date():
+def test_the_readme_states_the_relay_counts_apart_from_the_root_suites_count_with_a_date():
+    # The root suites' assertion total is whatever the root README says today: read it there instead of pinning a number,
+    # so a corrected total cannot leave this check failing on the stale one (it pinned 263 after the root total became 324).
     text = readme()
-    assert re.search(r"\d+ tests.*\d{4}-\d{2}-\d{2}", text) and "263" in text
+    root_total = re.search(r"(\d+) counted assertions in all", (REPO / "README.md").read_text(encoding="utf-8"))
+    assert root_total, "the root README no longer states its counted assertion total"
+    assert re.search(r"\d+ tests.*\d{4}-\d{2}-\d{2}", text)
+    assert f"the {root_total.group(1)} assertions of the root suites" in text
 
 
 def prose_lines(text: str):
