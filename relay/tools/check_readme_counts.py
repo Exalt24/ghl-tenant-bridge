@@ -35,6 +35,28 @@ def claimed(text: str) -> dict[str, int]:
     return out
 
 
+EDGE = RELAY.parent / "edge"
+
+
+def edge_counts() -> int | None:
+    """Mutants in edge/test/mutants.mjs (one array row each, starting `  ["`), or None when this checkout has no edge package."""
+    path = EDGE / "test" / "mutants.mjs"
+    if not path.exists():
+        return None
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.startswith('  ["'))
+
+
+def edge_claimed(text: str | None = None) -> int | None:
+    """The `N mutants that must all be caught` in edge/README.md, or None when it is not stated."""
+    if text is None:
+        readme = EDGE / "README.md"
+        if not readme.exists():
+            return None
+        text = readme.read_text(encoding="utf-8")
+    m = re.search(r"(?<!\d)(\d{1,6}) mutants that must all be caught", text)
+    return int(m.group(1)) if m else None
+
+
 def selftest() -> int:
     """CLASS-TABLE: a README count that disagrees with the files it counts. Vocabulary: each of the three counted things x a README off by -1, 0 or +1."""
     import itertools
@@ -50,7 +72,14 @@ def selftest() -> int:
         if detected != (delta != 0):
             bad += 1
             print("FAIL %s off by %+d: detected=%s" % (key, delta, detected))
-    print("readme counts selftest " + ("FAIL" if bad else "ok: 9 cases"))
+    edge_actual = edge_counts()
+    if edge_actual is not None:
+        for delta in (-1, 0, 1):
+            read = edge_claimed("holds %d mutants that must all be caught" % (edge_actual + delta))
+            if (read != edge_actual) != (delta != 0):
+                bad += 1
+                print("FAIL edge mutants off by %+d: detected=%s" % (delta, read != edge_actual))
+    print("readme counts selftest " + ("FAIL" if bad else "ok: %d cases" % (9 if edge_actual is None else 12)))
     return 1 if bad else 0
 
 
@@ -65,9 +94,16 @@ def main() -> int:
             problems.append("README no longer states the number of %s" % key)
         elif said[key] != actual[key]:
             problems.append("README says %d %s, the files hold %d" % (said[key], key, actual[key]))
+    edge_actual, edge_said = edge_counts(), edge_claimed()
+    if edge_actual is not None:
+        if edge_said is None:
+            problems.append("edge/README.md no longer states its number of mutants")
+        elif edge_said != edge_actual:
+            problems.append("edge/README.md says %d mutants, edge/test/mutants.mjs holds %d" % (edge_said, edge_actual))
     for p in problems:
         print("FAIL " + p)
-    print("readme counts " + ("FAIL" if problems else "ok: %s" % ", ".join("%d %s" % (actual[k], k) for k in ("mutants", "test files", "assert lines"))))
+    shown = ", ".join("%d %s" % (actual[k], k) for k in ("mutants", "test files", "assert lines"))
+    print("readme counts " + ("FAIL" if problems else "ok: %s%s" % (shown, "" if edge_actual is None else ", %d edge mutants" % edge_actual)))
     return 1 if problems else 0
 
 
