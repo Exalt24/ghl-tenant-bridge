@@ -12,7 +12,7 @@
     "test:all": "npm run typecheck && npm test && npm run test:mutants && npm run test:workerd"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261021.1",
+    "@cloudflare/workers-types": "^5.20261022.1",
     "typescript": "^7.0.2",
     "wrangler": "^4.0.0"
   },
