@@ -157,7 +157,7 @@ python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
 node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
-Six suites skip loudly on a fresh clone: `verify_oauth_claims.py` (gitignored token files), `postgis.test.py` and
+Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (a HighLevel sandbox token file, `GHL_SANDBOX_PIT_FILE`), `verify_public_keys.py` (a file of the keys scraped from HighLevel's docs, `GHL_PUBLISHED_KEYS_JSON`), `verify_oauth_claims.py` (gitignored token files), `postgis.test.py` and
 `farm_lists.test.py` (a local `pgis` container), `hosted-supabase.e2e.mjs` (the hosted project's settings),
 `outbox.browser.mjs` (Playwright at a fixed global npm path, to change on another machine) and
 `offline-drain.e2e.mjs` (Playwright the same way, plus `next start -p 3111`).
@@ -193,6 +193,7 @@ cp .env.example .env.local          # then fill in
 # Supabase, or Postgres 17 with PostGIS plus tests/supabase_shim.sql (auth.uid()); apply 0001 to 0005 in order
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0001_schema.sql
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0002_postgis.sql
+psql "$SUPABASE_DB_URL" -f supabase/migrations/0003_field_captures.sql   # then 0004 and 0005 the same way
 
 npm run build
 DEMO_SINK=1 npm start               # http://localhost:3000/capture

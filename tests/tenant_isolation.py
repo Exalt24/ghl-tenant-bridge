@@ -12,7 +12,14 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-SEC = Path(r"C:\Projects\Professional\Operations\.secrets\ghl_sandbox_pit.txt").read_text(encoding="utf-8")
+import os
+import sys
+
+_SEC_FILE = Path(os.environ.get("GHL_SANDBOX_PIT_FILE", r"C:\Projects\Professional\Operations\.secrets\ghl_sandbox_pit.txt"))
+if not _SEC_FILE.is_file():
+    print("SKIP: no sandbox token file at " + str(_SEC_FILE) + " (set GHL_SANDBOX_PIT_FILE); this suite needs a HighLevel sandbox")
+    sys.exit(2)
+SEC = _SEC_FILE.read_text(encoding="utf-8")
 A_TOK = re.search(r"TENANT_A_PIT=(\S+)", SEC).group(1)
 B_TOK = re.search(r"TENANT_B_PIT=(\S+)", SEC).group(1)
 AGENCY_TOK = SEC.splitlines()[0].strip()

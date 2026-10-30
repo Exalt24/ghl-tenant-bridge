@@ -13,8 +13,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-SHIPPED = Path(r"C:\Projects\Professional\Projects\Apps\ghl-tenant-bridge\src\lib\ghl-signature.ts")
-SCRAPED = Path(r"C:\Users\Dax\AppData\Local\Temp\claude\C--Projects-Professional\491b0370-1067-441c-a628-29b572867fed\scratchpad\ghl_keys.json")
+import os
+
+SHIPPED = Path(__file__).resolve().parent.parent / "src" / "lib" / "ghl-signature.ts"
+SCRAPED = Path(os.environ.get("GHL_PUBLISHED_KEYS_JSON", "ghl_keys.json"))
+if not SCRAPED.is_file():
+    print("SKIP: no file of the keys scraped from HighLevel's docs at " + str(SCRAPED) + " (set GHL_PUBLISHED_KEYS_JSON); nothing to compare the shipped keys with")
+    sys.exit(2)
 
 src = SHIPPED.read_text(encoding="utf-8")
 truth = json.loads(SCRAPED.read_text(encoding="utf-8"))
