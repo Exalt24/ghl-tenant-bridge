@@ -16,7 +16,7 @@ from pathlib import Path
 import os
 
 SHIPPED = Path(__file__).resolve().parent.parent / "src" / "lib" / "ghl-signature.ts"
-SCRAPED = Path(os.environ.get("GHL_PUBLISHED_KEYS_JSON", "ghl_keys.json"))
+SCRAPED = Path(os.environ.get("GHL_PUBLISHED_KEYS_JSON", str(Path(__file__).resolve().parent / "fixtures_ghl_published_keys.json")))
 if not SCRAPED.is_file():
     print("SKIP: no file of the keys scraped from HighLevel's docs at " + str(SCRAPED) + " (set GHL_PUBLISHED_KEYS_JSON); nothing to compare the shipped keys with")
     sys.exit(2)

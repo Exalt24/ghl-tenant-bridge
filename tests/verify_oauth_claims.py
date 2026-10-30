@@ -10,6 +10,8 @@ import json
 import urllib.parse
 import urllib.request
 import urllib.error
+import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -88,6 +90,10 @@ if not lt_path.exists():
     print("\nlocation_token.json missing, cannot verify claims 2-4")
 else:
     loc = json.loads(lt_path.read_text(encoding="utf-8"))
+    _exp = jwt_payload(loc["access_token"]).get("exp")
+    if isinstance(_exp, (int, float)) and _exp < time.time():
+        print("SKIP: the saved location token expired (it lives about a day); claims 2-5 need a fresh install, so nothing below is checked")
+        sys.exit(2)
     print()
     print("=" * 74)
     print("CLAIM 2: /oauth/locationToken minted a LOCATION token for tenant A")
@@ -154,3 +160,4 @@ if fails:
         print("  FAILED: " + f)
 else:
     print("ALL CLAIMS VERIFIED")
+sys.exit(1 if fails else 0)

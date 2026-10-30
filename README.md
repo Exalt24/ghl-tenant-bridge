@@ -11,7 +11,7 @@ Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an o
 Built by driving the real APIs rather than reading about them. **Measured numbers were measured on
 this machine; browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
 
-- **12 test suites that print a count, 324 counted assertions in all** (the
+- **12 test suites that print a count, 323 counted assertions in all** (the
   published-keys diff and the live tenant isolation check report pass or fail, and the
   edge worker has its own tests), run against a real Postgres, a real browser and live third-party APIs. The
   per-suite counts are listed under Tests.
@@ -157,13 +157,13 @@ python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
 node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
-Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (a HighLevel sandbox token file, `GHL_SANDBOX_PIT_FILE`), `verify_public_keys.py` (a file of the keys scraped from HighLevel's docs, `GHL_PUBLISHED_KEYS_JSON`), `verify_oauth_claims.py` (gitignored token files), `postgis.test.py` and
+Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (opt-in: it makes live calls to a HighLevel sandbox, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file), `verify_public_keys.py` (runs against `tests/fixtures_ghl_published_keys.json`; `GHL_PUBLISHED_KEYS_JSON` points it elsewhere), `verify_oauth_claims.py` (gitignored token files, and a loud SKIP once the saved token has expired, about a day), `postgis.test.py` and
 `farm_lists.test.py` (a local `pgis` container), `hosted-supabase.e2e.mjs` (the hosted project's settings),
 `outbox.browser.mjs` (Playwright at a fixed global npm path, to change on another machine) and
 `offline-drain.e2e.mjs` (Playwright the same way, plus `next start -p 3111`).
 
 The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a
-fresh clone and all passed with the printed counts (236 assertions in all; log not kept). The rest
+fresh clone and all passed with the printed counts (about 235 assertions by the counts they print; no log was kept, so treat that as a recollection). The rest
 need the gitignored token files and the hosted Supabase project.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
@@ -193,7 +193,7 @@ cp .env.example .env.local          # then fill in
 # Supabase, or Postgres 17 with PostGIS plus tests/supabase_shim.sql (auth.uid()); apply 0001 to 0005 in order
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0001_schema.sql
 psql "$SUPABASE_DB_URL" -f supabase/migrations/0002_postgis.sql
-psql "$SUPABASE_DB_URL" -f supabase/migrations/0003_field_captures.sql   # then 0004 and 0005 the same way
+psql "$SUPABASE_DB_URL" -f supabase/migrations/0003_field_captures.sql   # then 0004_storage_field_photos.sql (needs Supabase's storage schema) and 0005_farm_lists.sql
 
 npm run build
 DEMO_SINK=1 npm start               # http://localhost:3000/capture

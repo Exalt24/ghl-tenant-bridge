@@ -46,9 +46,10 @@ fi
 # The full offline cycle: capture with no connection, reconnect, drain to empty. Needs
 # a running dev server with the demo sink enabled, so it SKIPS loudly when one is not
 # up rather than failing a clone.
-printf "%-38s " "offline drain e2e (10 checks)"
-if curl -s -o /dev/null --max-time 3 "http://127.0.0.1:3111/api/demo/queue" 2>/dev/null; then
-  if node tests/offline-drain.e2e.mjs >/dev/null 2>&1; then
+printf "%-38s " "offline drain e2e (9 checks)"
+# the probe must see the demo sink itself (its GET answers {"received":..,"bytesReceived":..}): any other listener on 3111 used to hang this suite with no message
+if curl -s --max-time 3 "http://127.0.0.1:3111/api/demo/queue" 2>/dev/null | grep -q '"bytesReceived"'; then
+  if { command -v timeout >/dev/null 2>&1 && timeout 300 node tests/offline-drain.e2e.mjs || { ! command -v timeout >/dev/null 2>&1 && node tests/offline-drain.e2e.mjs; }; } >/dev/null 2>&1; then
     echo PASS
   else
     echo FAIL
@@ -92,8 +93,11 @@ fi
 # will not have them. A skip is reported loudly so it cannot be mistaken for a pass.
 printf "%-38s " "oauth claims (17 checks)"
 if [ -f tests/token_response.json ] && [ -f tests/location_token.json ]; then
-  if python tests/verify_oauth_claims.py 2>&1 | grep -q "ALL CLAIMS VERIFIED"; then
+  python tests/verify_oauth_claims.py >/dev/null 2>&1; rc=$?
+  if [ $rc -eq 0 ]; then
     echo PASS
+  elif [ $rc -eq 2 ]; then
+    echo "SKIP (the saved token expired, about a day; re-run an install to regenerate)"
   else
     echo FAIL
     fail=1

@@ -15,9 +15,10 @@ from pathlib import Path
 import os
 import sys
 
-_SEC_FILE = Path(os.environ.get("GHL_SANDBOX_PIT_FILE", r"C:\Projects\Professional\Operations\.secrets\ghl_sandbox_pit.txt"))
-if not _SEC_FILE.is_file():
-    print("SKIP: no sandbox token file at " + str(_SEC_FILE) + " (set GHL_SANDBOX_PIT_FILE); this suite needs a HighLevel sandbox")
+# opt-in on purpose: this suite makes live authenticated calls to a HighLevel sandbox, so it never finds a token file by itself
+_SEC_FILE = Path(os.environ.get("GHL_SANDBOX_PIT_FILE", ""))
+if not os.environ.get("GHL_SANDBOX_PIT_FILE") or not _SEC_FILE.is_file():
+    print("SKIP: set GHL_SANDBOX_PIT_FILE to a sandbox token file to run this suite (it makes live calls to a HighLevel sandbox)")
     sys.exit(2)
 SEC = _SEC_FILE.read_text(encoding="utf-8")
 A_TOK = re.search(r"TENANT_A_PIT=(\S+)", SEC).group(1)
