@@ -14,9 +14,9 @@ binding = "DB"
 database_name = "ghl-edge"
 database_id = "00000000-0000-0000-0000-000000000000"
 
-# The forward also runs from a queue, so a delivery reaches the sink within seconds instead of at the next 5 minute tick.
+# The forward also runs from a queue, so a delivery does not wait for the next 5 minute tick (max_batch_timeout below caps the batch wait at 5 seconds).
 # Create both first: `wrangler queues create ghl-forward` and `wrangler queues create ghl-forward-dlq`.
-# Queues deliver at least once; max_retries 5 means 6 deliveries, which matches MAX_ATTEMPTS in src/core.ts. A message that
+# Queues deliver at least once; max_retries 5 is meant to match MAX_ATTEMPTS 6 in src/core.ts (the first delivery plus 5 retries; Cloudflare states the retry count, not the delivery count). A message that
 # runs out of retries lands in the dead letter queue and the cron drain above still delivers the row from D1.
 [[queues.producers]]
 binding = "INBOX_QUEUE"
