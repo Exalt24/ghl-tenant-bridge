@@ -73,3 +73,20 @@ export function stubSink(handler) {
 }
 
 export const count = (db, where = "1=1") => db.raw.prepare(`SELECT COUNT(*) AS n FROM inbox WHERE ${where}`).get().n;
+
+/** A producer binding that records what was sent. `failWith` makes send() throw, like a queue that is down. */
+export function fakeQueue(failWith = null) {
+  const sent = [];
+  return { sent, send: async (body) => { if (failWith) throw failWith; sent.push(body); }, sendBatch: async (list) => { for (const m of list) sent.push(m.body); } };
+}
+
+/** A MessageBatch shaped like Cloudflare's: each message records its own ack() and retry({delaySeconds}). */
+export function makeBatch(bodies, queue = "ghl-forward") {
+  const messages = bodies.map((body, i) => {
+    const m = { id: `m${i}`, timestamp: new Date(0), body, attempts: 1, acked: false, retried: null };
+    m.ack = () => { m.acked = true; };
+    m.retry = (opts) => { m.retried = opts ?? {}; };
+    return m;
+  });
+  return { queue, messages, ackAll: () => messages.forEach((m) => m.ack()), retryAll: () => messages.forEach((m) => m.retry()) };
+}

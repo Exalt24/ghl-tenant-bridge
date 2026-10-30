@@ -76,6 +76,18 @@ try {
   check("a second tick forwards nothing more", received.length === 2);
   const after = await (await fetch(`${base}/health`)).json();
   check("both rows are done", after.inbox?.done === 2, JSON.stringify(after));
+
+  // The queue path, with no cron tick: wrangler's local Queues deliver the message to the same Worker's queue() handler.
+  // The two rows above had queue messages too, and those found their rows done and forwarded nothing (checked just below).
+  const viaQueue = await post(event("e2e-4", now));
+  check("a delivery after the cron ticks is accepted", viaQueue.status === 200);
+  let arrived = false;
+  for (let i = 0; i < 60 && !arrived; i++) { arrived = received.some((r) => r.key === "e2e-4"); if (!arrived) await sleep(300); }
+  check("the queue consumer forwarded it without any cron tick", arrived, JSON.stringify(received.map((r) => r.key)));
+  await sleep(1500);
+  check("every event reached the sink exactly once, queue redeliveries included", received.length === 3 && new Set(received.map((r) => r.key)).size === 3, JSON.stringify(received.map((r) => r.key)));
+  const final = await (await fetch(`${base}/health`)).json();
+  check("all three rows are done", final.inbox?.done === 3, JSON.stringify(final));
 } finally {
   wr.kill();
   sink.close();

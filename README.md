@@ -150,7 +150,7 @@ node tests/offline-drain.e2e.mjs   # 9   capture offline, reconnect, queue empti
 python tests/postgis.test.py        # 25  real migrations on real Postgres
 python tests/farm_lists.test.py     # 61  farm-list intake on real PostGIS
 
-(cd edge && npm install && npm run test:all)   # 30 + 18 mutants + 10 in real workerd
+(cd edge && npm install && npm run test:all)   # 41 + 27 mutants + 14 in real workerd
 python tests/verify_public_keys.py  #     shipped keys == HighLevel's published keys
 python tests/tenant_isolation.py    #     live GHL cross-tenant isolation, with a control
 python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation

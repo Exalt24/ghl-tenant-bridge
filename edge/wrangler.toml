@@ -14,6 +14,21 @@ binding = "DB"
 database_name = "ghl-edge"
 database_id = "00000000-0000-0000-0000-000000000000"
 
+# The forward also runs from a queue, so a delivery reaches the sink within seconds instead of at the next 5 minute tick.
+# Create both first: `wrangler queues create ghl-forward` and `wrangler queues create ghl-forward-dlq`.
+# Queues deliver at least once; max_retries 5 means 6 deliveries, which matches MAX_ATTEMPTS in src/core.ts. A message that
+# runs out of retries lands in the dead letter queue and the cron drain above still delivers the row from D1.
+[[queues.producers]]
+binding = "INBOX_QUEUE"
+queue = "ghl-forward"
+
+[[queues.consumers]]
+queue = "ghl-forward"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 5
+dead_letter_queue = "ghl-forward-dlq"
+
 [vars]
 # Where verified events are forwarded. Replace with your own endpoint.
 SINK_URL = "https://example.invalid/ghl-events"

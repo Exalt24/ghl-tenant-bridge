@@ -27,6 +27,16 @@ const MUTANTS = [
   ["attempt cap removed", `(permanent || row.attempts >= MAX_ATTEMPTS)`, `permanent`],
   ["backoff removed", `const backoffMs = (attempts: number): number => Math.min(60_000 * 2 ** attempts, 60 * 60_000);`, `const backoffMs = (_attempts: number): number => 0;`],
   ["retention prune removed", `await env.DB.prepare(\`DELETE FROM inbox WHERE state = 'done' AND received_at < ?\`).bind(now - RETENTION_MS).run();`, ``],
+  // The queue: each guard below is one way at-least-once delivery turns into a double forward, a lost row or a poisoned batch.
+  ["duplicate re-enqueued", `if (fresh && env.INBOX_QUEUE) {`, `if (env.INBOX_QUEUE) {`],
+  ["a down queue fails the webhook", `} catch { /* the row is durable; the cron drain sweeps it */ }`, `} catch (e) { throw e; }`],
+  ["body with no id retried", `if (typeof id !== "string" || id.length === 0) { msg.ack(); continue; }`, `if (false) { msg.ack(); continue; }`],
+  ["consumer claims any due row", `(? IS NULL OR webhook_id = ?)`, `(? IS NULL OR webhook_id = webhook_id OR ? IS NULL)`],
+  ["good forward not acked", `if (r.ok || r.dead) msg.ack();`, `if (r.dead) msg.ack();`],
+  ["retry without backoff", `msg.retry({ delaySeconds: Math.ceil(backoffMs(row.attempts) / 1000) });`, `msg.retry();`],
+  ["finished row not acked on redelivery", `if (!cur || cur.state === "done" || cur.state === "dead") msg.ack();`, `if (!cur) msg.ack();`],
+  ["not-due row retried with no wait", `msg.retry({ delaySeconds: Math.min(3600, Math.max(30, Math.ceil((cur.next_at - now) / 1000))) });`, `msg.retry({ delaySeconds: 1 });`],
+  ["one failing message throws the batch", `    } catch {\n      msg.retry({ delaySeconds: 60 });`, `    } catch (e) {\n      throw e;`],
 ];
 
 let failed = 0;
@@ -36,7 +46,7 @@ for (const [name, from, to] of MUTANTS) {
   let mutated = SRC.replace(from, () => to);
   // The two structural mutants need a syntactically complete replacement.
   if (name === "outcome not batched") {
-    mutated = mutated.replace(`      ),\n      env.DB.prepare(\`INSERT INTO deliveries (webhook_id, attempt, at, status, ok) VALUES (?, ?, ?, ?, ?)\`).bind(\n        row.webhook_id, row.attempts, now, status, ok ? 1 : 0\n      ),\n    ]);`, `      ),\n      env.DB.prepare(\`INSERT INTO deliveries (webhook_id, attempt, at, status, ok) VALUES (?, ?, ?, ?, ?)\`).bind(\n        row.webhook_id, row.attempts, now, status, ok ? 1 : 0\n      ),\n    ]) await s.run();`);
+    mutated = mutated.replace(`    ),\n    env.DB.prepare(\`INSERT INTO deliveries (webhook_id, attempt, at, status, ok) VALUES (?, ?, ?, ?, ?)\`).bind(\n      row.webhook_id, row.attempts, now, status, ok ? 1 : 0\n    ),\n  ]);`, `    ),\n    env.DB.prepare(\`INSERT INTO deliveries (webhook_id, attempt, at, status, ok) VALUES (?, ?, ?, ?, ?)\`).bind(\n      row.webhook_id, row.attempts, now, status, ok ? 1 : 0\n    ),\n  ]) await s.run();`);
   }
   const dir = mkdtempSync(join(tmpdir(), "edge-mutant-"));
   try {

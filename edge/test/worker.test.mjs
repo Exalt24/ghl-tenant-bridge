@@ -262,3 +262,148 @@ for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
     assert.equal(w.db.raw.prepare("SELECT COUNT(*) AS n FROM (SELECT webhook_id FROM deliveries WHERE ok = 1 GROUP BY webhook_id HAVING COUNT(*) > 1)").get().n, 0);
   });
 }
+
+// ---- the queue: a producer in ingest and a consumer for the same forward -------------------------------------------
+
+import { fakeQueue, makeBatch } from "./helpers.mjs";
+
+const qworld = async (queue = fakeQueue()) => {
+  const w = await world();
+  w.queue = queue;
+  w.qenv = { ...w.env, INBOX_QUEUE: queue };
+  w.postq = async (body) => w.worker.fetch(await signedRequest(w.keys.privateKey, body), w.qenv);
+  return w;
+};
+const outcome = (m) => (m.acked ? "ack" : m.retried ? `retry:${m.retried.delaySeconds}` : "none");
+
+test("a new delivery is enqueued once with only its id, and a duplicate adds no message", async () => {
+  const w = await qworld();
+  await w.postq(event("q1", NOW));
+  await w.postq(event("q1", NOW));
+  assert.deepEqual(w.queue.sent, [{ webhookId: "q1" }]);
+  assert.equal(count(w.db), 1);
+});
+
+test("a queue that is down does not fail the webhook: 200, the row is stored, and the cron drain still delivers it", async () => {
+  const w = await qworld(fakeQueue(new Error("queue down")));
+  const res = await w.postq(event("q2", NOW));
+  assert.equal(res.status, 200);
+  assert.equal(count(w.db, "state = 'pending'"), 1);
+  const sink = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.scheduled({}, w.qenv); } finally { sink.restore(); }
+  assert.equal(count(w.db, "state = 'done'"), 1);
+});
+
+test("without the queue binding ingest still works (cron only)", async () => {
+  const w = await world();
+  assert.equal((await w.post(event("q3", NOW))).status, 200);
+});
+
+test("consumer: a good forward is sent once with the Idempotency-Key, acked, and the row is done", async () => {
+  const w = await qworld();
+  await w.postq(event("c1", NOW));
+  const batch = makeBatch([{ webhookId: "c1" }]);
+  const sink = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.queue(batch, w.qenv); } finally { sink.restore(); }
+  assert.equal(sink.calls.length, 1);
+  assert.equal(sink.calls[0].key, "c1");
+  assert.deepEqual(batch.messages.map(outcome), ["ack"]);
+  assert.equal(count(w.db, "state = 'done'"), 1);
+});
+
+test("consumer: a redelivered message for a finished row is acked and the sink is not called again", async () => {
+  const w = await qworld();
+  await w.postq(event("c2", NOW));
+  const sink = stubSink(() => new Response("ok", { status: 200 }));
+  try {
+    await w.worker.queue(makeBatch([{ webhookId: "c2" }]), w.qenv);
+    const again = makeBatch([{ webhookId: "c2" }, { webhookId: "c2" }]);
+    await w.worker.queue(again, w.qenv);
+    assert.deepEqual(again.messages.map(outcome), ["ack", "ack"]);
+  } finally { sink.restore(); }
+  assert.equal(sink.calls.length, 1, "at-least-once delivery must not become two forwards");
+});
+
+test("consumer: a 503 retries the message with a backoff delay and leaves the row pending for the sweeper", async () => {
+  const w = await qworld();
+  await w.postq(event("c3", NOW));
+  const batch = makeBatch([{ webhookId: "c3" }]);
+  const sink = stubSink(() => new Response("down", { status: 503 }));
+  try { await w.worker.queue(batch, w.qenv); } finally { sink.restore(); }
+  assert.deepEqual(batch.messages.map(outcome), ["retry:120"]);
+  assert.equal(count(w.db, "state = 'pending'"), 1);
+});
+
+test("consumer: a permanent 4xx marks the row dead and acks, a 429 is retried", async () => {
+  const w = await qworld();
+  await w.postq(event("c4", NOW));
+  await w.postq(event("c5", NOW));
+  const bad = makeBatch([{ webhookId: "c4" }]);
+  const slow = makeBatch([{ webhookId: "c5" }]);
+  let sink = stubSink(() => new Response("no", { status: 400 }));
+  try { await w.worker.queue(bad, w.qenv); } finally { sink.restore(); }
+  sink = stubSink(() => new Response("slow down", { status: 429 }));
+  try { await w.worker.queue(slow, w.qenv); } finally { sink.restore(); }
+  assert.deepEqual([bad, slow].map((b) => outcome(b.messages[0])), ["ack", "retry:120"]);
+  assert.equal(count(w.db, "webhook_id = 'c4' AND state = 'dead'"), 1);
+  assert.equal(count(w.db, "webhook_id = 'c5' AND state = 'pending'"), 1);
+});
+
+test("consumer: the attempt cap marks the row dead and acks instead of retrying forever", async () => {
+  const w = await qworld();
+  await w.postq(event("c6", NOW));
+  const sink = stubSink(() => new Response("down", { status: 503 }));
+  let last;
+  try {
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      w.t.now += 2 * 60 * 60 * 1000;
+      last = makeBatch([{ webhookId: "c6" }]);
+      await w.worker.queue(last, w.qenv);
+    }
+  } finally { sink.restore(); }
+  assert.equal(sink.calls.length, MAX_ATTEMPTS);
+  assert.deepEqual(last.messages.map(outcome), ["ack"]);
+  assert.equal(count(w.db, "state = 'dead'"), 1);
+});
+
+test("consumer: an unknown id and a body with no id are acked, a row that is not due yet is retried for its remaining wait", async () => {
+  const w = await qworld();
+  await w.postq(event("c7", NOW));
+  let sink = stubSink(() => new Response("down", { status: 503 }));
+  try { await w.worker.queue(makeBatch([{ webhookId: "c7" }]), w.qenv); } finally { sink.restore(); }
+  const batch = makeBatch([{ webhookId: "nope" }, {}, null, { webhookId: "c7" }]);
+  sink = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.queue(batch, w.qenv); } finally { sink.restore(); }
+  assert.deepEqual(batch.messages.map(outcome), ["ack", "ack", "ack", "retry:120"]);
+  assert.equal(sink.calls.length, 0, "a row inside its backoff is not forwarded early");
+});
+
+test("consumer: each message claims only its own row", async () => {
+  const w = await qworld();
+  await w.postq(event("d1", NOW));
+  await w.postq(event("d2", NOW));
+  const sink = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.queue(makeBatch([{ webhookId: "d2" }]), w.qenv); } finally { sink.restore(); }
+  assert.deepEqual(sink.calls.map((c) => c.key), ["d2"]);
+  assert.equal(count(w.db, "webhook_id = 'd1' AND state = 'pending'"), 1);
+});
+
+test("consumer: a database error on one message retries that message and does not touch the others in the batch", async () => {
+  const w = await qworld();
+  await w.postq(event("e1", NOW));
+  await w.postq(event("e2", NOW));
+  const realPrepare = w.db.prepare;
+  const flaky = {
+    ...w.db,
+    prepare: (text) => {
+      const s = realPrepare(text);
+      if (!text.startsWith("UPDATE inbox SET state = 'claimed'")) return s;
+      return { ...s, bind: (...a) => (a.includes("e1") ? { all: async () => { throw new Error("D1 unavailable"); } } : s.bind(...a)) };
+    },
+  };
+  const batch = makeBatch([{ webhookId: "e1" }, { webhookId: "e2" }]);
+  const sink = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.queue(batch, { ...w.qenv, DB: flaky }); } finally { sink.restore(); }
+  assert.deepEqual(batch.messages.map(outcome), ["retry:60", "ack"]);
+  assert.deepEqual(sink.calls.map((c) => c.key), ["e2"]);
+});
