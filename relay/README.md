@@ -67,7 +67,7 @@ Without `DATABASE_URL_TEST` the Postgres half is skipped and the run prints that
 
 From one full local run on 2026-10-24: 2922 tests passed and 2 skipped on SQLite and on Postgres 17, on Windows 11, with `RELAY_REQUIRE_POSTGRES=1` set. The 45 test files hold 2180 lines whose first word is `assert` (a static count with indented lines, not executed assertions). The 44th file, `tests/test_demo_cutover.py`, was added after the full run and was run on its own on 2026-10-24: it passed in 31 seconds. The 45th file, `tests/test_hold_unresolved.py`, was added on 2026-10-25 and also falls outside the full run above.
 
-`python tests/mutants.py` holds 669 mutants. Each run recorded in [docs/measurements.md](docs/measurements.md) caught every mutant it ran with a named failing test, and the earlier mutants were not all run again after the last change; CI runs the whole list in 8 shards. These numbers are the relay's own and are kept apart from the 324 assertions of the root suites and the counts in `edge/README.md`.
+`python tests/mutants.py` holds 669 mutants. Each run recorded in [docs/measurements.md](docs/measurements.md) caught every mutant it ran with a named failing test, and the earlier mutants were not all run again after the last change; CI runs the whole list in 8 shards. These numbers are the relay's own and are kept apart from the 323 assertions of the root suites and the counts in `edge/README.md`.
 
 ## ASSUMED, and what would settle each
 
