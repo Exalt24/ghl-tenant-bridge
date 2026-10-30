@@ -423,3 +423,32 @@ test("a 4xx about the sink (401, 403, 404) is retried, so a rotated token does n
   assert.deepEqual(good.calls.map((c) => c.key).sort(), ["t1", "t2", "t3"]);
   assert.deepEqual(["t1", "t2", "t3", "t4"].map(state), ["done", "done", "done", "dead"]);
 });
+
+test("the README's requeue statement resends dead rows once each and finishes them; resetting attempts to 0 would collide with the delivery log", async () => {
+  const readme = (await import("node:fs")).readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const statement = /`(UPDATE inbox SET state='pending'[^`]*)`/.exec(readme)?.[1];
+  assert.ok(statement, "the README must carry the requeue statement");
+  assert.ok(!/attempts\s*=\s*0/.test(statement), "the documented statement must not reset attempts");
+
+  const w = await world();
+  await w.post(event("rq1", NOW));
+  await w.post(event("rq2", NOW));
+  let bad = stubSink(() => new Response("", { status: 401 }));
+  try { for (let i = 0; i < MAX_ATTEMPTS; i++) { w.t.now += 2 * 60 * 60 * 1000; await w.worker.scheduled({}, w.env); } } finally { bad.restore(); }
+  assert.equal(count(w.db, "state = 'dead'"), 2);
+
+  w.db.raw.exec(statement);
+  const good = stubSink(() => new Response("ok", { status: 200 }));
+  try { w.t.now += 60 * 1000; await w.worker.scheduled({}, w.env); } finally { good.restore(); }
+  assert.deepEqual(good.calls.map((c) => c.key).sort(), ["rq1", "rq2"]);
+  assert.equal(count(w.db, "state = 'done'"), 2);
+
+  // the control: the same replay with attempts reset makes the drain throw on the delivery log's primary key
+  const x = await world();
+  await x.post(event("rq3", NOW));
+  bad = stubSink(() => new Response("", { status: 401 }));
+  try { for (let i = 0; i < MAX_ATTEMPTS; i++) { x.t.now += 2 * 60 * 60 * 1000; await x.worker.scheduled({}, x.env); } } finally { bad.restore(); }
+  x.db.raw.exec("UPDATE inbox SET state='pending', attempts=0, next_at=0 WHERE state='dead'");
+  const ok = stubSink(() => new Response("ok", { status: 200 }));
+  try { x.t.now += 60 * 1000; await assert.rejects(() => x.worker.scheduled({}, x.env), /UNIQUE/); } finally { ok.restore(); }
+});

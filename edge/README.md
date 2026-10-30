@@ -24,7 +24,7 @@ npm install
 npm run test:all
 ```
 
-`test:all` runs the typecheck, 42 offline tests (a seeded property test among them), 28 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30: 42 of 42, 28 of 28, 14 of 14.
+`test:all` runs the typecheck, 43 offline tests (a seeded property test among them), 28 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30: 43 of 43, 28 of 28, 14 of 14.
 
 To deploy: `wrangler d1 create ghl-edge`, paste the id into `wrangler.toml`, `wrangler d1 execute ghl-edge --remote --file schema.sql`, `wrangler secret put SINK_TOKEN`, set `SINK_URL`, `wrangler deploy`.
 
