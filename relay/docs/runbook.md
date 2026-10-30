@@ -4,7 +4,7 @@ Back to the [relay README](../README.md).
 
 ## Re-queue dead rows in the Worker's D1 after a relay outage
 
-The Worker retries a failed forward with backoff and marks a row dead after 6 attempts, or at once on a 4xx other than 408 and 429. What Railway answers for a stopped deployment is ASSUMED, so a stopped relay may produce dead rows in the Worker. Column names below come from `edge/schema.sql`. The relay dedupes on the `webhookId` the Worker sends as `Idempotency-Key`, so re-queueing is safe.
+The Worker retries a failed forward with backoff and marks a row dead after 6 attempts, or at once on a 400, 410, 413, 422 or any other 4xx except 401, 403, 404, 408 and 429, which are retried. What Railway answers for a stopped deployment is ASSUMED, so a stopped relay may produce dead rows in the Worker. Column names below come from `edge/schema.sql`. The relay dedupes on the `webhookId` the Worker sends as `Idempotency-Key`, so re-queueing is safe.
 
 ```
 wrangler d1 execute ghl-edge --remote --command "UPDATE inbox SET state = 'pending', attempts = 0, next_at = CAST(strftime('%s','now') AS INTEGER) * 1000, claim_until = NULL, last_error = NULL WHERE state = 'dead';"
