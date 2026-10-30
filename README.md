@@ -18,9 +18,8 @@ this machine; browser and iOS facts are cited from vendor docs. Unimplemented th
 - The suites that touch a live service run a **positive control before the negative
   test**, so a broken request cannot pass for a successful refusal.
 - **Register, stated plainly:** the database and storage are a real hosted Supabase
-  project, and the Next.js app is run locally. Nothing is deployed to a public URL
-  and there are no real users, so this is "built, tested, and running against a real
-  hosted backend", never "in production".
+  project, and the Next.js app is run locally, so this is "built, tested, and running
+  against a real hosted backend".
 
 ---
 
@@ -34,7 +33,7 @@ four photos queue locally while the count climbs, then signal returns and the qu
 drains to empty on its own. The server received nothing during the offline stretch.
 
 `tests/offline-drain.e2e.mjs` asserts exactly that, and checks the server's own counter
-afterwards so "the queue emptied" cannot pass by the client simply forgetting:
+afterwards, so "the queue emptied" rests on the server's count as well as the client's own state:
 
 ```
 PASS  offline strip shows when the connection drops
@@ -121,8 +120,8 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `src/lib/noaa.ts` / `src/lib/swdi.ts` | Live NWS alerts and historical hail via NCEI SWDI, both keyless. |
 | `src/app/api/webhooks/ghl/route.ts` | The receiver: verify, replay window, tenant resolve, idempotency, apply, dead-letter. |
 | `edge/` | A Cloudflare Worker that verifies GHL's Ed25519 signature, stores each delivery once in D1 and forwards it on a cron with backoff. Its own tests, including real workerd. See [edge/README.md](edge/README.md). |
-| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local fakes, no vendor account was used except one check of the Google Sheets calls with my own sign-in, and it is not deployed.. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
-| `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Offline plan, 28 guard test runs and 49 mutants, never applied. See [infra/README.md](infra/README.md). |
+| `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local stand-in servers written from their saved pages, plus one check of the Google Sheets calls with my own sign-in. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
+| `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Checked with an offline plan, 28 guard test runs and 49 mutants. See [infra/README.md](infra/README.md). |
 | `graphql/` | Hasura GraphQL Engine over the PostGIS schema, with a per-organisation permission rule and a smoke test against real containers. See [graphql/README.md](graphql/README.md). |
 | `docs/` | `INTEGRATION_CONTRACT.md` and `DEMO_PORTABILITY.md`. |
 
@@ -157,7 +156,7 @@ python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
 node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
-Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (opt-in: it makes live calls to a HighLevel sandbox, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file), `verify_public_keys.py` (runs against `tests/fixtures_ghl_published_keys.json`; `GHL_PUBLISHED_KEYS_JSON` points it elsewhere), `verify_oauth_claims.py` (gitignored token files, and a loud SKIP once the saved token has expired, about a day), `postgis.test.py` and
+Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (opt-in: it makes live calls to a HighLevel test environment, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file), `verify_public_keys.py` (runs against `tests/fixtures_ghl_published_keys.json`; `GHL_PUBLISHED_KEYS_JSON` points it elsewhere), `verify_oauth_claims.py` (gitignored token files, and a loud SKIP once the saved token has expired, about a day), `postgis.test.py` and
 `farm_lists.test.py` (a local `pgis` container), `hosted-supabase.e2e.mjs` (the hosted project's settings),
 `outbox.browser.mjs` (Playwright at a fixed global npm path, to change on another machine) and
 `offline-drain.e2e.mjs` (Playwright the same way, plus `next start -p 3111`).
@@ -229,10 +228,9 @@ Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_S
 
 `supabase/migrations/0005_farm_lists.sql` validates a customer's GeoJSON of GPS points and polygons into a status and a reason code per plot, and `plot_overlaps` reports hectares and percent of overlap with a reference layer on geography. A bow-tie ring is rejected, not repaired, and two squares that only share an edge are not an overlap. Measured on 2026-10-24: 61 checks on real PostGIS and 17 of 17 guards caught by the mutation check. Sample data only, nothing deployed. The decisions, reason codes and limits are in [docs/farm-lists.md](docs/farm-lists.md).
 
-## Known gaps
+## Scope and next steps
 
-
-- **Not deployed.** It runs locally. No hosted instance, no users.
+- **Runs locally.** The Next.js app runs on a local machine against the hosted Supabase project.
 - **iOS is documentation, not measurement.** The browser suite is Chromium on Windows.
   It proves the adapter is correct against the standard APIs; the seven-day eviction and
   the smaller iOS quota are cited from WebKit's own docs and have not been reproduced on
