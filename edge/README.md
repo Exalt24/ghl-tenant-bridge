@@ -24,7 +24,7 @@ npm install
 npm run test:all
 ```
 
-`test:all` runs the typecheck, 43 offline tests (a seeded property test among them), 28 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30: 43 of 43, 28 of 28, 14 of 14.
+`test:all` runs the typecheck, 43 offline tests (a seeded property test among them), 28 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30 (output in the repo at docs/test-runs/2026-10-30-edge-test-all.txt): 43 of 43, 28 of 28, 14 of 14.
 
 To deploy: `wrangler d1 create ghl-edge`, paste the id into `wrangler.toml`, `wrangler d1 execute ghl-edge --remote --file schema.sql`, `wrangler queues create ghl-forward` and `wrangler queues create ghl-forward-dlq`, `wrangler secret put SINK_TOKEN`, set `SINK_URL` in the `[vars]` of `wrangler.toml` (a value typed into the Cloudflare dashboard is overwritten by the next `wrangler deploy`, and the placeholder host makes every forward fail while the Worker still answers 200 to HighLevel), `wrangler deploy`. `/health` answers 200 whatever the counts, so point a monitor at `inbox.dead` and alert when it is above 0.
 

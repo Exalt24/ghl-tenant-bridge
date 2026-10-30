@@ -1,0 +1,122 @@
+Edge Worker full run, 2026-10-30 (npm run test:all from edge/: typecheck, offline tests, mutants, workerd). Machine: Windows 11, Node 24.18, wrangler 4.152.0. The wrangler dev --local queue is Miniflare, not Cloudflare.
+Command: cd edge && npm run test:all     exit code 0
+Result: 43 of 43 offline tests, 28 of 28 mutants caught, 14 of 14 workerd checks.
+--- raw output follows ---
+
+> ghl-edge-receiver@0.1.0 test:all
+> npm run typecheck && npm test && npm run test:mutants && npm run test:workerd
+
+
+> ghl-edge-receiver@0.1.0 typecheck
+> tsc --noEmit
+
+
+> ghl-edge-receiver@0.1.0 test
+> node --test test/worker.test.mjs
+
+✔ a signed, recent, new delivery is stored and answered 200 (24.2102ms)
+✔ the same webhookId again is a duplicate: 200, still one row (2.3732ms)
+✔ a tampered body, a missing header, N/A and the legacy header alone are all 401 and store nothing (2.6822ms)
+✔ a signature from a different key is refused (positive control: the same body with the right key passes) (1.7247ms)
+✔ the key override is ignored unless ENVIRONMENT is exactly test, so config cannot weaken verification (0.8704ms)
+✔ an old delivery, a future one, a missing timestamp, bad JSON and a missing id are 400 (3.0894ms)
+✔ the age limit never exceeds the retention of the dedupe rows, so no replay falls between the two (0.097ms)
+✔ a body over the cap is 413 whether or not content-length admits it (2.4841ms)
+✔ routing: GET on the webhook path is 405, unknown paths 404, /health shows counts and no payload (1.3138ms)
+✔ drain forwards once with the Idempotency-Key and the bearer token, then marks done and logs the attempt (2.2635ms)
+✔ a failing sink backs off, retries later, and a row goes dead after MAX_ATTEMPTS (2.0989ms)
+✔ a permanent 4xx from the sink goes straight to dead, a 429 is retried (1.609ms)
+✔ two overlapping drains never forward the same row twice (97.4278ms)
+✔ a drain that died after claiming leaves a row that the next drain picks up once the claim expires, not before (1.6904ms)
+✔ drain takes at most DRAIN_BATCH rows per tick, oldest due first (6.0497ms)
+✔ a failure while recording the outcome leaves the row claimed, never half done (batch is all or nothing) (1.371ms)
+✔ done rows older than the retention window are pruned, recent and unfinished ones are kept (0.6006ms)
+✔ no secret or account id is committed in the edge folder (1.9124ms)
+✔ property: seed 1 keeps the delivery rules (21.614ms)
+✔ property: seed 2 keeps the delivery rules (19.5178ms)
+✔ property: seed 3 keeps the delivery rules (18.4989ms)
+✔ property: seed 4 keeps the delivery rules (18.3407ms)
+✔ property: seed 5 keeps the delivery rules (19.476ms)
+✔ property: seed 6 keeps the delivery rules (17.8796ms)
+✔ property: seed 7 keeps the delivery rules (18.295ms)
+✔ property: seed 8 keeps the delivery rules (16.7083ms)
+✔ property: seed 9 keeps the delivery rules (18.2701ms)
+✔ property: seed 10 keeps the delivery rules (20.8986ms)
+✔ property: seed 11 keeps the delivery rules (17.8594ms)
+✔ property: seed 12 keeps the delivery rules (13.3309ms)
+✔ a new delivery is enqueued once with only its id, and a duplicate adds no message (1.2319ms)
+✔ a queue that is down does not fail the webhook: 200, the row is stored, and the cron drain still delivers it (1.1435ms)
+✔ without the queue binding ingest still works (cron only) (0.8476ms)
+✔ consumer: a good forward is sent once with the Idempotency-Key, acked, and the row is done (1.2956ms)
+✔ consumer: a redelivered message for a finished row is acked and the sink is not called again (2.3164ms)
+✔ consumer: a 503 retries the message with a backoff delay and leaves the row pending for the sweeper (1.0724ms)
+✔ consumer: a permanent 4xx marks the row dead and acks, a 429 is retried (1.4063ms)
+✔ consumer: the attempt cap marks the row dead and acks instead of retrying forever (1.5633ms)
+✔ consumer: an unknown id and a body with no id are acked, a row that is not due yet is retried for its remaining wait (1.153ms)
+✔ consumer: each message claims only its own row (1.1933ms)
+✔ consumer: a database error on one message retries that message and does not touch the others in the batch (1.3171ms)
+✔ a 4xx about the sink (401, 403, 404) is retried, so a rotated token does not lose events; a 4xx about the payload is still dead (1.986ms)
+✔ the README's requeue statement resends dead rows once each and finishes them; resetting attempts to 0 would collide with the delivery log (5.8016ms)
+ℹ tests 43
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 488.8923
+
+> ghl-edge-receiver@0.1.0 test:mutants
+> node test/mutants.mjs
+
+caught   signature check removed
+caught   legacy header accepted
+caught   test key honoured outside test
+caught   duplicate insert not ignored
+caught   duplicate reported as new
+caught   age window removed
+caught   age window wider than retention
+caught   body cap removed
+caught   content-length cap removed
+caught   claim ignores expired claims
+caught   claim ignores the batch limit
+caught   claim does not mark the row claimed
+caught   outcome not batched
+caught   idempotency key dropped
+caught   permanent 4xx retried
+caught   auth failure treated as permanent
+caught   attempt cap removed
+caught   backoff removed
+caught   retention prune removed
+caught   duplicate re-enqueued
+caught   a down queue fails the webhook
+caught   body with no id retried
+caught   consumer claims any due row
+caught   good forward not acked
+caught   retry without backoff
+caught   finished row not acked on redelivery
+caught   not-due row retried with no wait
+caught   one failing message throws the batch
+
+ALL 28 MUTANTS CAUGHT
+
+> ghl-edge-receiver@0.1.0 test:workerd
+> node test/e2e_workerd.mjs
+
+PASS  signed delivery accepted in workerd
+PASS  the same webhookId again is a duplicate
+PASS  a forged signature is 401
+PASS  a second distinct delivery accepted
+PASS  health shows two pending rows and no payload
+PASS  the scheduled handler ran
+PASS  each verified event reached the sink exactly once
+PASS  the sink got the bearer token and the original body
+PASS  a second tick forwards nothing more
+PASS  both rows are done
+PASS  a delivery after the cron ticks is accepted
+PASS  the queue consumer forwarded it without any cron tick
+PASS  every event reached the sink exactly once, queue redeliveries included
+PASS  all three rows are done
+
+ALL 14 WORKERD CHECKS PASSED
+EXIT=0
