@@ -407,3 +407,19 @@ test("consumer: a database error on one message retries that message and does no
   assert.deepEqual(batch.messages.map(outcome), ["retry:60", "ack"]);
   assert.deepEqual(sink.calls.map((c) => c.key), ["e2"]);
 });
+
+test("a 4xx about the sink (401, 403, 404) is retried, so a rotated token does not lose events; a 4xx about the payload is still dead", async () => {
+  const w = await world();
+  for (const id of ["t1", "t2", "t3", "t4"]) await w.post(event(id, NOW));
+  const status = { t1: 401, t2: 403, t3: 404, t4: 400 };
+  const sink = stubSink((c) => new Response("", { status: status[c.key] }));
+  try { await w.worker.scheduled({}, w.env); } finally { sink.restore(); }
+  const state = (id) => w.db.raw.prepare("SELECT state FROM inbox WHERE webhook_id = ?").get(id).state;
+  assert.deepEqual(["t1", "t2", "t3", "t4"].map(state), ["pending", "pending", "pending", "dead"]);
+  // the token is fixed: the next due drain delivers the three that were waiting, each once
+  w.t.now += 60 * 60 * 1000;
+  const good = stubSink(() => new Response("ok", { status: 200 }));
+  try { await w.worker.scheduled({}, w.env); } finally { good.restore(); }
+  assert.deepEqual(good.calls.map((c) => c.key).sort(), ["t1", "t2", "t3"]);
+  assert.deepEqual(["t1", "t2", "t3", "t4"].map(state), ["done", "done", "done", "dead"]);
+});

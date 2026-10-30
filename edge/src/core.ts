@@ -166,6 +166,9 @@ async function claim(env: Env, now: number, limit: number, onlyId: string | null
   return results;
 }
 
+/** 4xx answers that describe the sink's state and not the event: auth, routing, timeout, rate limit. */
+const RETRYABLE_4XX = new Set([401, 403, 404, 408, 429]);
+
 const backoffMs = (attempts: number): number => Math.min(60_000 * 2 ** attempts, 60 * 60_000);
 
 /** One forward attempt for a claimed row and the state change that goes with it. The cron drain and the queue consumer both call it, so they cannot drift apart. */
@@ -190,8 +193,9 @@ async function deliver(env: Env, row: Claimed, now: number): Promise<{ ok: boole
   } catch (e) {
     error = e instanceof Error ? e.message : "fetch failed";
   }
-  // A 4xx other than 408 and 429 will not get better on retry, so it goes straight to dead.
-  const permanent = status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429;
+  // A 4xx about the payload will not get better on retry, so it goes straight to dead. A 4xx about the sink itself (a rotated
+  // token, a deploy that moved the route, a timeout, a rate limit) can clear up, so those retry until MAX_ATTEMPTS.
+  const permanent = status !== null && status >= 400 && status < 500 && !RETRYABLE_4XX.has(status);
   const dead = !ok && (permanent || row.attempts >= MAX_ATTEMPTS);
   const state = ok ? "done" : dead ? "dead" : "pending";
   // The state change and the attempt log are one batch: the log cannot say "delivered" while the row says "pending".

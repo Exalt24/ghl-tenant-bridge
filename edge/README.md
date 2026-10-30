@@ -24,7 +24,7 @@ npm install
 npm run test:all
 ```
 
-`test:all` runs the typecheck, 41 offline tests (a seeded property test among them), 27 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30: 41 of 41, 27 of 27, 14 of 14.
+`test:all` runs the typecheck, 42 offline tests (a seeded property test among them), 28 mutants that must all be caught and 14 end-to-end checks in real workerd through `wrangler dev --local`. Last full run 2026-10-30: 42 of 42, 28 of 28, 14 of 14.
 
 To deploy: `wrangler d1 create ghl-edge`, paste the id into `wrangler.toml`, `wrangler d1 execute ghl-edge --remote --file schema.sql`, `wrangler secret put SINK_TOKEN`, set `SINK_URL`, `wrangler deploy`.
 
@@ -33,5 +33,6 @@ To deploy: `wrangler d1 create ghl-edge`, paste the id into `wrangler.toml`, `wr
 - The queue ran only in `wrangler dev --local` (Miniflare). No Cloudflare queue exists, `ghl-forward` and `ghl-forward-dlq` are not created, nothing is subscribed to the dead letter queue, and Cloudflare documents consumer concurrency as unsupported locally, so retry timing and concurrency are unproven on the real service. Queue delivery is at least once: a message can arrive twice, and the consumer acks a row that is already done instead of forwarding it again. If a send to the queue fails, the webhook is still answered 200 and the cron drain delivers the row.
 - Not deployed. The free plan allows 5 cron triggers per account and the account this was built on uses all 5, so the cron is proven in workerd with `--test-scheduled`, not on the edge network.
 - The signature check was proven against signatures made with a test key. The published HighLevel key is what production uses, and no real HighLevel delivery has been sent to this Worker.
+- A sink answer of 400, 410, 413 or 422 marks the row `dead` at once and nothing requeues it; 401, 403, 404, 408 and 429 are retried up to six attempts with backoff, so a rotated token or a moved route that is fixed within about two hours loses nothing, and a longer outage ends in `dead` rows that `/health` counts. To resend them: `UPDATE inbox SET state='pending', attempts=0, next_at=0 WHERE state='dead'`.
 - One sink, one tenant. The forward is at-least-once: if the sink handles a request and then times out, it sees the same `Idempotency-Key` again and has to ignore the repeat.
 - Free-plan CPU time is 10 ms per request. The signature check and one insert fit, and no load test was run.
