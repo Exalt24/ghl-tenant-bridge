@@ -28,5 +28,10 @@
     "@types/react-dom": "^19.3.0",
     "serwist": "^9.5.2",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "glob": {
+      "minimatch": "^11.0.5"
+    }
   }
 }
