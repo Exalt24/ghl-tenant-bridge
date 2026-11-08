@@ -8,32 +8,21 @@
 
 Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup.
 
-Built by driving the real APIs rather than reading about them. **Measured numbers were measured on
-this machine; browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
+Built by driving the real APIs rather than reading about them. **Measured numbers were measured on this machine. Browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
 
-- **12 test suites that print a count, 323 counted assertions in all** (the
-  published-keys diff and the live tenant isolation check report pass or fail, and the
-  edge worker has its own tests), run against a real Postgres, a real browser and live third-party APIs. The
-  per-suite counts are listed under Tests.
-- The suites that touch a live service run a **positive control before the negative
-  test**, so a broken request cannot pass for a successful refusal.
-- **Register, stated plainly:** the database and storage are a real hosted Supabase
-  project, and the Next.js app is run locally, so this is "built, tested, and running
-  against a real hosted backend".
+- **12 test suites that print a count, 323 counted assertions in all.** They run against a real Postgres, a real browser and live third-party APIs. The published-keys diff and the live tenant isolation check report pass or fail. The edge worker has its own tests. The per-suite counts are listed under Tests.
+- The suites that touch a live service run a **positive control before the negative test**. A broken request cannot pass for a successful refusal.
+- **Register, stated plainly:** the database and storage are a real hosted Supabase project. The Next.js app runs locally. So this is "built, tested, and running against a real hosted backend".
 
 ---
 
 ## The offline queue, actually working
 
-A roofer stands on a roof with no signal, takes four photos, and drives away. Nothing
-may be lost, and nothing may be sent twice.
+A roofer stands on a roof with no signal. He takes four photos and drives away. Nothing may be lost. Nothing may be sent twice.
 
-In the recording at the top, left to right: signal drops and the strip appears,
-four photos queue locally while the count climbs, then signal returns and the queue
-drains to empty on its own. The server received nothing during the offline stretch.
+The recording at the top reads left to right. The signal drops and the strip appears. Four photos queue locally while the count climbs. Then the signal returns and the queue drains to empty on its own. The server received nothing during the offline stretch.
 
-`tests/offline-drain.e2e.mjs` asserts exactly that, and checks the server's own counter
-afterwards, so "the queue emptied" rests on the server's count as well as the client's own state:
+`tests/offline-drain.e2e.mjs` asserts exactly that. It then checks the server's own counter. So "the queue emptied" rests on the server's count as well as the client's own state:
 
 ```
 PASS  offline strip shows when the connection drops
@@ -54,37 +43,21 @@ PASS  no orphaned photo bytes left on the device
 
 <img src="docs/screenshots/capture-offline.png" alt="Four photos queued with no signal" width="390">
 
-No signal, four photos held on the device, each one named and marked *Waiting*. The
-strip is deliberately quiet: a thin line of muted text, not a red banner, because the
-app is working exactly as intended and saying so loudly would be a lie about severity.
+No signal, four photos held on the device, each one named and marked *Waiting*. The strip is deliberately quiet. It is a thin line of muted text, not a red banner. The app is working exactly as intended, and saying so loudly would be a lie about severity.
 
-The same page at desktop width, since a field tool still gets opened on a laptop in an
-office:
+The same page at desktop width. A field tool still gets opened on a laptop in an office:
 
 ![Desktop layout](docs/screenshots/capture-desktop.png)
 
 ### Why the interface looks like this
 
-The design came from reading real field apps, not from taste. **CompanyCam's actual
-mobile UI** is a thin muted strip reading "You seem to be offline." and a calm grey card
-reading "3 items waiting to upload." with a one-word action. The first draft here was a
-red alert bar, which is precisely the documented **Housecall Pro** failure whose
-persistent "OFFLINE Limited Functionality" banner false-fires on good signal and draws
-review complaints.
+The design came from reading real field apps, not from taste. **CompanyCam's actual mobile UI** is a thin muted strip reading "You seem to be offline." It also has a calm grey card reading "3 items waiting to upload." with a one-word action. The first draft here was a red alert bar. That is the documented **Housecall Pro** failure. Its persistent "OFFLINE Limited Functionality" banner false-fires on good signal and draws review complaints.
 
-So: **count plus action, never status plus colour**, and the card disappears at zero
-(Encircle's decrementing-badge pattern). The copy says what will happen, because
-web.dev's guidance is that non-technical audiences misread the word "offline".
+So the rule is **count plus action, never status plus colour**. The card disappears at zero (Encircle's decrementing-badge pattern). The copy says what will happen. web.dev's guidance is that non-technical audiences misread the word "offline".
 
-Two more borrowed decisions. **Capture never blocks on a save**, because Encircle earned a
-3-star review for making users save one picture before taking the next. And **GPS and
-time are stamped at capture, not at upload**, because the upload can be hours later.
+Two more borrowed decisions. **Capture never blocks on a save.** Encircle earned a 3-star review for making users save one picture before taking the next. **GPS and time are stamped at capture, not at upload.** The upload can be hours later.
 
-Accessibility was checked against the spec rather than assumed. `role="status"` carries
-an implicit `aria-live="polite"` and `aria-atomic="true"`, and MDN documents it as
-**inappropriate for a frequently-updating counter**, since every photo would fire a full
-announcement. So the count is plain text and one polite region announces transitions
-only. The queue is a plain list with real buttons, never a listbox holding buttons.
+Accessibility was checked against the spec, not assumed. `role="status"` carries an implicit `aria-live="polite"` and `aria-atomic="true"`. MDN documents it as **inappropriate for a frequently-updating counter**, since every photo would fire a full announcement. So the count is plain text. One polite region announces transitions only. The queue is a plain list with real buttons, never a listbox holding buttons.
 
 ---
 
@@ -94,9 +67,7 @@ only. The queue is a plain list with real buttons, never a listbox holding butto
 that date webhooks are signed only with `X-GHL-Signature` (Ed25519). Any integration
 verifying just the legacy RSA header stops validating then (announced by the vendor, not observed here).
 
-This bridge is dual-path, prefers Ed25519, and **fails closed** on a legacy signature
-presented after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset` so
-the cutover is an ops number rather than a memory.
+This bridge is dual-path and prefers Ed25519. It **fails closed** on a legacy signature presented after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset`. The cutover is an ops number rather than a memory.
 
 Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.com/docs/webhook/WebhookIntegrationGuide/)
 
@@ -129,7 +100,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 
 ## Measured facts
 
-The numbers here were measured on this machine, except browser and iOS facts cited from vendor docs; the full list, with the geocoding, parcel, browser and HighLevel findings, is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md).
+The numbers here were measured on this machine. The exceptions are browser and iOS facts cited from vendor docs. The full list is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md). It has the geocoding, parcel, browser and HighLevel findings.
 
 ---
 
@@ -156,30 +127,18 @@ python tests/verify_oauth_claims.py # 17  decodes the JWTs, re-runs isolation
 node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supabase
 ```
 
-Eight suites skip loudly on a fresh clone: `tenant_isolation.py` (opt-in: it makes live calls to a HighLevel test environment, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file), `verify_public_keys.py` (runs against `tests/fixtures_ghl_published_keys.json`; `GHL_PUBLISHED_KEYS_JSON` points it elsewhere), `verify_oauth_claims.py` (gitignored token files, and a loud SKIP once the saved token has expired, about a day), `postgis.test.py` and
-`farm_lists.test.py` (a local `pgis` container), `hosted-supabase.e2e.mjs` (the hosted project's settings),
-`outbox.browser.mjs` (Playwright at a fixed global npm path, to change on another machine) and
-`offline-drain.e2e.mjs` (Playwright the same way, plus `next start -p 3111`).
+Eight suites skip loudly on a fresh clone. `tenant_isolation.py` is opt-in. It makes live calls to a HighLevel test environment, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file. `verify_public_keys.py` runs against `tests/fixtures_ghl_published_keys.json`. `GHL_PUBLISHED_KEYS_JSON` points it elsewhere. `verify_oauth_claims.py` needs gitignored token files. It gives a loud SKIP once the saved token has expired, about a day. `postgis.test.py` and `farm_lists.test.py` need a local `pgis` container. `hosted-supabase.e2e.mjs` needs the hosted project's settings. `outbox.browser.mjs` needs Playwright at a fixed global npm path, to change on another machine. `offline-drain.e2e.mjs` needs Playwright the same way, plus `next start -p 3111`.
 
-The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a
-fresh clone and all passed with the printed counts (about 235 assertions by the counts they print; no log was kept, so treat that as a recollection). The rest
-need the gitignored token files and the hosted Supabase project.
+The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a fresh clone. All passed with the printed counts, about 235 assertions by the counts they print. No log was kept, so treat that as a recollection. The rest need the gitignored token files and the hosted Supabase project.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
-Reverting the coordinate order in `0002_postgis.sql` produced 5 failures, including the
-40 km property collapsing to 4.75 km (checked once, not a saved mutant).
+Reverting the coordinate order in `0002_postgis.sql` produced 5 failures. They included the 40 km property collapsing to 4.75 km (checked once, not a saved mutant).
 
 Some tests exist because of a specific mistake:
 
-- `verify_public_keys.py` exists because the RSA key body was **fabricated** in a first
-  draft. A wrong public key does not crash; it silently fails every verification, so
-  the shipped artifact is diffed against the scraped published key.
-- `tenant_isolation.py` runs a **positive control first**: tenant A writes and reads
-  back its own contact, proving the harness works, and only then is tenant B refused.
-  Without it, a broken request would "prove" isolation by failing for the wrong reason.
-- `outbox.browser.mjs` **forces the IndexedDB backend**, because Chromium supports
-  `createWritable` and would otherwise leave that whole path unexecuted, and that is
-  the path most iPhones will actually use.
+- `verify_public_keys.py` exists because the RSA key body was **fabricated** in a first draft. A wrong public key does not crash. It silently fails every verification. So the shipped artifact is diffed against the scraped published key.
+- `tenant_isolation.py` runs a **positive control first**. Tenant A writes and reads back its own contact. That proves the harness works. Only then is tenant B refused. Without it, a broken request would "prove" isolation by failing for the wrong reason.
+- `outbox.browser.mjs` **forces the IndexedDB backend**. Chromium supports `createWritable` and would otherwise leave that whole path unexecuted. That is the path most iPhones will actually use.
 
 ---
 
@@ -202,10 +161,7 @@ Required env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, and `NWS_USER_AGENT` (NWS returns **403** on an empty
 User-Agent, measured).
 
-`DEMO_SINK=1` enables `/api/demo/queue`, a local no-op sink so the queue can drain
-without Supabase credentials. It refuses to run in production unless explicitly set, so
-it cannot become an accidental open upload endpoint. With Supabase configured, swap the
-capture page's transport for `createSupabaseOutboxTransport`.
+`DEMO_SINK=1` enables `/api/demo/queue`. It is a local no-op sink, so the queue can drain without Supabase credentials. It refuses to run in production unless explicitly set. That keeps it from becoming an accidental open upload endpoint. With Supabase configured, swap the capture page's transport for `createSupabaseOutboxTransport`.
 
 ### Local Postgres for the PostGIS suite
 
@@ -214,9 +170,7 @@ docker run --rm -d --name pgis -e POSTGRES_PASSWORD=pw -p 55432:5432 postgis/pos
 python tests/postgis.test.py
 ```
 
-`tests/supabase_shim.sql` stands in for the `auth` schema and Supabase's default
-privileges so RLS can be **exercised** locally. It is a test harness and says so; it
-validates policy logic, not Supabase's permission model.
+`tests/supabase_shim.sql` stands in for the `auth` schema and Supabase's default privileges. That lets RLS be **exercised** locally. It is a test harness and says so. It validates policy logic, not Supabase's permission model.
 
 ### The shim is no longer the last word
 
@@ -226,25 +180,18 @@ Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_S
 
 ## Farm lists
 
-`supabase/migrations/0005_farm_lists.sql` validates a customer's GeoJSON of GPS points and polygons into a status and a reason code per plot, and `plot_overlaps` reports hectares and percent of overlap with a reference layer on geography. A bow-tie ring is rejected, not repaired, and two squares that only share an edge are not an overlap. Measured on 2026-10-24: 61 checks on real PostGIS and 17 of 17 guards caught by the mutation check. Sample data only, nothing deployed. The decisions, reason codes and limits are in [docs/farm-lists.md](docs/farm-lists.md).
+`supabase/migrations/0005_farm_lists.sql` validates a customer's GeoJSON of GPS points and polygons. Each plot gets a status and a reason code. `plot_overlaps` reports hectares and percent of overlap with a reference layer on geography. A bow-tie ring is rejected, not repaired. Two squares that only share an edge are not an overlap. Measured on 2026-10-24: 61 checks on real PostGIS and 17 of 17 guards caught by the mutation check. Sample data only, nothing deployed. The decisions, reason codes and limits are in [docs/farm-lists.md](docs/farm-lists.md).
 
 ## Scope and next steps
 
 - **Runs locally.** The Next.js app runs on a local machine against the hosted Supabase project.
-- **iOS is documentation, not measurement.** The browser suite is Chromium on Windows.
-  It proves the adapter is correct against the standard APIs; the seven-day eviction and
-  the smaller iOS quota are cited from WebKit's own docs and have not been reproduced on
-  a device here.
-- **Webhook subscription registration is UI-only** on both paths, by the vendor's
-  design. Both paths are handled in code; neither can be created via API.
-- **No live authenticated write to a customer's production account.** The sandbox work
-  is real; a production write is not claimed.
+- **iOS is documentation, not measurement.** The browser suite is Chromium on Windows. It proves the adapter is correct against the standard APIs. The seven-day eviction and the smaller iOS quota are cited from WebKit's own docs. They have not been reproduced on a device here.
+- **Webhook subscription registration is UI-only** on both paths, by the vendor's design. Both paths are handled in code. Neither can be created via API.
+- **No live authenticated write to a customer's production account.** The sandbox work is real. A production write is not claimed.
 - **The workflow path is unsigned** and cannot be made otherwise. Prefer Marketplace app
   webhooks, which are free, signed, retried and logged.
 - **Roof geometry is not solved here.** Ridge, hip and valley measurement has no free and legal source.
-- **Google imagery is off-limits** for this shape of product: its terms forbid tracing
-  or digitising building outlines, forbid training models on it, and forbid mixing it
-  with a non-Google basemap.
+- **Google imagery is off-limits** for this shape of product. Its terms forbid tracing or digitising building outlines. They forbid training models on it. They forbid mixing it with a non-Google basemap.
 
 ---
 
