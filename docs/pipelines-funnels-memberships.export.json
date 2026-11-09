@@ -1,0 +1,158 @@
+{
+  "about": "Read back from the HighLevel developer sandbox on 2026-11-10. Ids are replaced by placeholders. The pipeline and funnel blocks come from the public API; the workflow API returns only name and status, so its triggers and actions are written from the builder screens (screenshots 03 to 07).",
+  "pipeline": {
+    "source": "GET /opportunities/pipelines",
+    "id": "<PIPELINE_ID>",
+    "name": "Course enrolment",
+    "useOpportunityProbability": false,
+    "stages": [
+      {
+        "id": "<STAGE_1_ID>",
+        "name": "New lead",
+        "position": 0,
+        "stageWinProbability": 20
+      },
+      {
+        "id": "<STAGE_2_ID>",
+        "name": "Contacted",
+        "position": 1,
+        "stageWinProbability": 40
+      },
+      {
+        "id": "<STAGE_3_ID>",
+        "name": "Enrolled",
+        "position": 2,
+        "stageWinProbability": 100
+      },
+      {
+        "id": "<STAGE_4_ID>",
+        "name": "Lost",
+        "position": 3,
+        "stageWinProbability": 0
+      }
+    ]
+  },
+  "funnel": {
+    "source": "GET /funnels/funnel/list",
+    "id": "<FUNNEL_ID>",
+    "name": "Course enquiry funnel",
+    "domainId": "",
+    "domainIdNote": "empty string: no domain is attached, which is why the publish dialog refused (screenshot 14)",
+    "steps": [
+      {
+        "id": "<STEP_1_ID>",
+        "sequence": 1,
+        "name": "Course enquiry landing page",
+        "type": "optin_funnel_page",
+        "url": "/course-enquiry",
+        "pageId": "<PAGE_1_ID>"
+      },
+      {
+        "id": "<STEP_2_ID>",
+        "sequence": 2,
+        "name": "Thank you page",
+        "type": "optin_funnel_page",
+        "url": "/thank-you",
+        "pageId": "<PAGE_2_ID>"
+      }
+    ],
+    "landingPageElements": [
+      "headline",
+      "paragraph",
+      "form 'Course enquiry (test)' with redirect set to Go to Next step"
+    ],
+    "thankYouPageElements": [
+      "headline",
+      "paragraph",
+      "button 'Open the course area' (link target not set)"
+    ]
+  },
+  "workflow": {
+    "source": "GET /workflows/ for name and status; triggers and actions written from the builder",
+    "id": "<WORKFLOW_ID>",
+    "name": "Course enquiry to pipeline",
+    "status": "published",
+    "triggers": [
+      {
+        "type": "Form submitted",
+        "filter": "Form is any of: Course enquiry (test)"
+      },
+      {
+        "type": "Contact tag",
+        "filter": "Tag added includes: course-enquiry"
+      }
+    ],
+    "actions": [
+      {
+        "step": 1,
+        "type": "Create opportunity",
+        "pipeline": "Course enrolment",
+        "stage": "New lead",
+        "fields": {
+          "Opportunity Name": "Course enquiry {{contact.first_name}}"
+        }
+      },
+      {
+        "step": 2,
+        "type": "SMS",
+        "message": "Hi {{contact.first_name}}, thanks for your interest in the Spreadsheet Basics course. Reply STOP to opt out."
+      },
+      {
+        "step": 3,
+        "type": "Wait",
+        "mode": "For a set period of time",
+        "period": "1 minute"
+      },
+      {
+        "step": 4,
+        "type": "Update opportunity",
+        "fields": {
+          "Pipeline": "Course enrolment",
+          "Pipeline Stage": "Contacted"
+        }
+      }
+    ]
+  },
+  "membershipCourse": {
+    "source": "Memberships > Courses screens; the public API has no read call for it",
+    "title": "Spreadsheet Basics",
+    "pricing": "Free",
+    "modules": [
+      {
+        "title": "Course Contents",
+        "lessons": [
+          {
+            "title": "Welcome Aboard!",
+            "kind": "video slot from the starter template, no media uploaded"
+          },
+          {
+            "title": "Lesson 1: The What",
+            "kind": "video slot from the starter template, no media uploaded"
+          },
+          {
+            "title": "Lesson 2: The Why",
+            "kind": "video slot from the starter template, no media uploaded"
+          },
+          {
+            "title": "Lesson 3: The How",
+            "kind": "video slot from the starter template, no media uploaded"
+          },
+          {
+            "title": "What's Next?",
+            "kind": "video slot from the starter template, no media uploaded"
+          },
+          {
+            "title": "Lesson 4: Reading a chart (text)",
+            "kind": "text only, added by hand"
+          }
+        ]
+      }
+    ],
+    "offer": {
+      "title": "Spreadsheet Basics free offer",
+      "type": "Free",
+      "price": "USD 0.00",
+      "status": "Published"
+    }
+  }
+}
