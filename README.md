@@ -6,7 +6,7 @@
 
 *One unedited recording: the signal drops, four photos queue locally, then the queue drains to empty on its own.*
 
-Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup. A HighLevel lead welcome workflow with a Make.com scenario, built and run in a sandbox, is written up with its limits in [docs/lead-welcome-workflow.md](docs/lead-welcome-workflow.md).
+Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup. A HighLevel lead welcome workflow with a Make.com scenario, built and run in a sandbox, is written up with its limits in [docs/lead-welcome-workflow.md](docs/lead-welcome-workflow.md). A four stage HighLevel pipeline filled and moved by a workflow, a two page funnel and a course with a text lesson and a free offer were built in the same sandbox on 2026-11-10 ([docs/pipelines-funnels-memberships.md](docs/pipelines-funnels-memberships.md)). The funnel could not be published because the sandbox has no domain, and the SMS step ran and was refused with "Trial mode not enabled for this agency".
 
 Built by driving the real APIs rather than reading about them. **Measured numbers were measured on this machine. Browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
 
