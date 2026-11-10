@@ -6,12 +6,12 @@
 
 *One unedited recording: the signal drops, four photos queue locally, then the queue drains to empty on its own.*
 
-Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup. A HighLevel lead welcome workflow with a Make.com scenario, built and run in a sandbox, is written up with its limits in [docs/lead-welcome-workflow.md](docs/lead-welcome-workflow.md). A four stage HighLevel pipeline filled and moved by a workflow, a two page funnel and a course with a text lesson and a free offer were built in the same sandbox on 2026-11-10 ([docs/pipelines-funnels-memberships.md](docs/pipelines-funnels-memberships.md)). The funnel is published on a free `dynv6.net` subdomain connected with one CNAME record and both pages load signed out, but a form submission through the public page was not completed because Cloudflare Turnstile errored in the automated browser. The SMS step ran and was refused with "Trial mode not enabled for this agency". A custom field set on a contact, a custom value changed and read back, and a calendar with a booking made and removed were done through the API in the same sandbox on 2026-11-10, with an offline test of the script (53 checks, 25 of 25 mutants caught) that runs in CI ([docs/custom-fields-values-calendars.md](docs/custom-fields-values-calendars.md)). A snapshot of the built sub-account (the form, both workflows, the pipeline, the funnel and the course, 11 assets) was created in the same sandbox on 2026-11-10 and read back in the Snapshots list and through the API. It was not shared or loaded anywhere. The white label, single sign on, branded mobile app and phone number pages were opened read only and what each says about this account is quoted: the custom branded app is a paid card at `from $497/m`, and the sub-account's phone system says "Your phone system requires configuration" ([docs/snapshot-and-settings-check.md](docs/snapshot-and-settings-check.md)). On 2026-11-10 the white label and single sign on pages were then actually set up: a white label domain on a `dynv6.net` subdomain was verified and its branded sign in page loaded over https, and single sign on through a free Auth0 tenant passed HighLevel's own test and signed in once through the branded address; the extra API domain was removed again and the single sign on switch was turned back off ([docs/white-label-and-sso.md](docs/white-label-and-sso.md)).
+Multi-tenant GoHighLevel to Supabase bridge with PostGIS storm matching and an offline photo capture queue. It also does keyless geocoding and county parcel lookup. A HighLevel lead welcome workflow with a Make.com scenario, built and run in a sandbox, is written up with its limits in [docs/lead-welcome-workflow.md](docs/lead-welcome-workflow.md). A four stage HighLevel pipeline filled and moved by a workflow, a two page funnel and a course with a text lesson and a free offer were built in the same sandbox on 2026-11-10 ([docs/pipelines-funnels-memberships.md](docs/pipelines-funnels-memberships.md)). The funnel is published on a free `dynv6.net` subdomain connected with one CNAME record and both pages load signed out, but a form submission through the public page was not completed because Cloudflare Turnstile errored in the automated browser. The SMS step ran and was refused with "Trial mode not enabled for this agency". A custom field set on a contact, a custom value changed and read back, and a calendar with a booking made and removed were done through the API in the same sandbox on 2026-11-10, with an offline test (53 checks, 25 of 25 mutants caught) that runs in CI ([docs/custom-fields-values-calendars.md](docs/custom-fields-values-calendars.md)). A snapshot of the built sub-account (the form, both workflows, the pipeline, the funnel and the course, 11 assets) was created in the same sandbox on 2026-11-10 and read back in the Snapshots list and through the API. It was not shared or loaded anywhere. The white label, single sign on, branded mobile app and phone number pages were opened read only and what each says about this account is quoted: the custom branded app is a paid card at `from $497/m`, and the sub-account's phone system says "Your phone system requires configuration" ([docs/snapshot-and-settings-check.md](docs/snapshot-and-settings-check.md)). On 2026-11-10 the white label and single sign on pages were then actually set up: a white label domain on a `dynv6.net` subdomain was verified and its branded sign in page loaded over https, and single sign on through a free Auth0 tenant passed HighLevel's own test and signed in once through the branded address; the extra API domain was removed again and the single sign on switch was turned back off ([docs/white-label-and-sso.md](docs/white-label-and-sso.md)).
 
-Built by driving the real APIs rather than reading about them. **Measured numbers were measured on this machine. Browser and iOS facts are cited from vendor docs. Unimplemented things are listed as gaps.**
+Built by driving the real APIs rather than reading about them. **Measured numbers were measured on this machine, browser and iOS facts are cited from vendor docs, and unimplemented things are listed as gaps.**
 
-- **12 test suites that print a count, 323 counted assertions in all.** They run against a real Postgres, a real browser and live third-party APIs. The published-keys diff and the live tenant isolation check report pass or fail. The edge worker has its own tests. The per-suite counts are listed under Tests.
-- The suites that touch a live service run a **positive control before the negative test**. A broken request cannot pass for a successful refusal.
+- **12 test suites that print a count, 323 counted assertions in all.** They run against a real Postgres, a real browser and live third-party APIs. The published-keys diff and the live tenant isolation check report pass or fail. The edge worker has its own tests. Per-suite counts are under Tests.
+- The suites that touch a live service run a **positive control before the negative test**, so a broken request cannot pass for a refusal.
 - **Register, stated plainly:** the database and storage are a real hosted Supabase project. The Next.js app runs locally. So this is "built, tested, and running against a real hosted backend".
 
 ---
@@ -22,7 +22,7 @@ A roofer stands on a roof with no signal. He takes four photos and drives away. 
 
 The recording at the top shows the signal dropping and four photos queueing on the device. When the signal returns, the queue drains to empty on its own. `tests/offline-drain.e2e.mjs` asserts that the server received nothing while offline, then checks the server's own counter after the drain.
 
-Screenshots, the test output and the design reasoning are in [docs/offline-queue.md](docs/offline-queue.md).
+Screenshots, test output and design reasoning: [docs/offline-queue.md](docs/offline-queue.md).
 
 ---
 
@@ -32,7 +32,7 @@ Screenshots, the test output and the design reasoning are in [docs/offline-queue
 that date webhooks are signed only with `X-GHL-Signature` (Ed25519). Any integration
 verifying just the legacy RSA header stops validating then (announced by the vendor, not observed here).
 
-This bridge is dual-path and prefers Ed25519. It **fails closed** on a legacy signature presented after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset`. The cutover is an ops number rather than a memory.
+This bridge is dual-path and prefers Ed25519, and it **fails closed** on a legacy signature after the sunset. `GET /api/webhooks/ghl` reports `daysUntilLegacySunset`. The cutover is an ops number rather than a memory.
 
 Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.com/docs/webhook/WebhookIntegrationGuide/)
 
@@ -59,13 +59,14 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local stand-in servers written from their saved pages, plus one check of the Google Sheets calls with my own sign-in. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
 | `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Checked with an offline plan, 28 guard test runs and 49 mutants. See [infra/README.md](infra/README.md). |
 | `graphql/` | Hasura GraphQL Engine over the PostGIS schema, with a per-organisation permission rule and a smoke test against real containers. See [graphql/README.md](graphql/README.md). |
+| `sms-provider/` | A Python bridge that sends a HighLevel custom provider's texts through an Android SMS gateway app. Tested on stand-ins only. See [docs/sms-through-a-gateway.md](docs/sms-through-a-gateway.md). |
 | `docs/` | `INTEGRATION_CONTRACT.md` and `DEMO_PORTABILITY.md`. |
 
 ---
 
 ## Measured facts
 
-The numbers here were measured on this machine. The exceptions are browser and iOS facts cited from vendor docs. The full list is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md). It has the geocoding, parcel, browser and HighLevel findings.
+The numbers here were measured on this machine, except browser and iOS facts cited from vendor docs. The full list, with the geocoding, parcel, browser and HighLevel findings, is in [docs/MEASURED_FACTS.md](docs/MEASURED_FACTS.md).
 
 ---
 
@@ -94,7 +95,7 @@ node tests/hosted-supabase.e2e.mjs # 10  the SHIPPING transport vs hosted Supaba
 
 Eight suites skip loudly on a fresh clone. `tenant_isolation.py` is opt-in. It makes live calls to a HighLevel test environment, so it runs only when `GHL_SANDBOX_PIT_FILE` names a token file. `verify_public_keys.py` runs against `tests/fixtures_ghl_published_keys.json`. `GHL_PUBLISHED_KEYS_JSON` points it elsewhere. `verify_oauth_claims.py` needs gitignored token files. It gives a loud SKIP once the saved token has expired, about a day. `postgis.test.py` and `farm_lists.test.py` need a local `pgis` container. `hosted-supabase.e2e.mjs` needs the hosted project's settings. `outbox.browser.mjs` needs Playwright at a fixed global npm path, to change on another machine. `offline-drain.e2e.mjs` needs Playwright the same way, plus `next start -p 3111`.
 
-The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a fresh clone. All passed with the printed counts, about 235 assertions by the counts they print. No log was kept, so treat that as a recollection. The rest need the gitignored token files and the hosted Supabase project.
+The counts above are what each suite prints. On 2026-10-07 I re-ran nine of them from a fresh clone and all passed with the printed counts. No log was kept, so treat that as a recollection. The rest need the gitignored token files and the hosted Supabase project.
 
 **A green test proves nothing until it has been watched go red for the right reason.**
 Reverting the coordinate order in `0002_postgis.sql` produced 5 failures. They included the 40 km property collapsing to 4.75 km (checked once, not a saved mutant).
@@ -122,11 +123,9 @@ npm run build
 DEMO_SINK=1 npm start               # http://localhost:3000/capture
 ```
 
-Required env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY`, and `NWS_USER_AGENT` (NWS returns **403** on an empty
-User-Agent, measured).
+Required env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `NWS_USER_AGENT` (NWS returns **403** on an empty User-Agent, measured).
 
-`DEMO_SINK=1` enables `/api/demo/queue`. It is a local no-op sink, so the queue can drain without Supabase credentials. It refuses to run in production unless explicitly set. That keeps it from becoming an accidental open upload endpoint. With Supabase configured, swap the capture page's transport for `createSupabaseOutboxTransport`.
+`DEMO_SINK=1` enables `/api/demo/queue`, a local no-op sink so the queue can drain without Supabase credentials. It refuses to run in production unless explicitly set, so it cannot become an open upload endpoint. With Supabase configured, swap the capture page's transport for `createSupabaseOutboxTransport`.
 
 ### Local Postgres for the PostGIS suite
 
@@ -135,11 +134,11 @@ docker run --rm -d --name pgis -e POSTGRES_PASSWORD=pw -p 55432:5432 postgis/pos
 python tests/postgis.test.py
 ```
 
-`tests/supabase_shim.sql` stands in for the `auth` schema and Supabase's default privileges. That lets RLS be **exercised** locally. It is a test harness and says so. It validates policy logic, not Supabase's permission model.
+`tests/supabase_shim.sql` stands in for the `auth` schema and Supabase's default privileges, so RLS can be **exercised** locally. It validates policy logic, not Supabase's permission model.
 
 ### The shim is no longer the last word
 
-Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_SHIM.md](docs/SUPABASE_SHIM.md).
+Why the PostGIS suite ran on a shim first, and what replaced it: [docs/SUPABASE_SHIM.md](docs/SUPABASE_SHIM.md).
 
 ---
 
@@ -151,12 +150,12 @@ Why the PostGIS suite ran on a shim first and what replaced it: [docs/SUPABASE_S
 
 - **Runs locally.** The Next.js app runs on a local machine against the hosted Supabase project.
 - **iOS is documentation, not measurement.** The browser suite is Chromium on Windows. It proves the adapter is correct against the standard APIs. The seven-day eviction and the smaller iOS quota are cited from WebKit's own docs. They have not been reproduced on a device here.
-- **Webhook subscription registration is UI-only** on both paths, by the vendor's design. Both paths are handled in code. Neither can be created via API.
+- **Webhook subscription registration is UI-only** on both paths, by the vendor's design. Both paths are handled in code. Neither can be created by API.
 - **No live authenticated write to a customer's production account.** The sandbox work is real. A production write is not claimed.
 - **The workflow path is unsigned** and cannot be made otherwise. Prefer Marketplace app
   webhooks, which are free, signed, retried and logged.
 - **Roof geometry is not solved here.** Ridge, hip and valley measurement has no free and legal source.
-- **Google imagery is off-limits** for this shape of product. Its terms forbid tracing or digitising building outlines. They forbid training models on it. They forbid mixing it with a non-Google basemap.
+- **Google imagery is off-limits** for this shape of product. Its terms forbid tracing or digitising building outlines, training models on it, and mixing it with a non-Google basemap.
 
 ---
 
