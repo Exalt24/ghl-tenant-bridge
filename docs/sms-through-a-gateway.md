@@ -2,7 +2,7 @@
 
 The HighLevel sandbox refuses to send a text ("Trial mode not enabled for this agency", see [pipelines-funnels-memberships.md](pipelines-funnels-memberships.md)). HighLevel lets an account add a custom Conversation Provider, which is a Delivery URL that gets every outbound message. This page describes a small bridge in [`sms-provider/`](../sms-provider/) that answers that URL and sends the text through the [android-sms-gateway](https://github.com/capcom6/android-sms-gateway) app on a phone, using its local server API. It then tells HighLevel whether the text was delivered.
 
-This is code and a test suite. It was tested only against stand-in servers written from the documentation. It was not run against the real HighLevel API and not against the phone, so nothing on this page claims a text was delivered through it.
+This is code, a test suite and one real run. The suite uses stand-in servers written from the documentation. On 2026-11-10 one text sent from the HighLevel sandbox through a custom Conversation Provider reached the bridge over a Cloudflare tunnel and went out from a real phone (see [A real run](#a-real-run-2026-11-10)). The status call back to HighLevel has not run against the real API.
 
 ## What it does
 
@@ -111,6 +111,29 @@ python tests/mutants.py            # SMS BRIDGE MUTANTS: 88 of 88 caught, 0 prob
 
 The mutation check copies the package, breaks one guard per mutant (a removed secret check, a dropped basic auth header, `PUT` changed to `POST`, `Failed` no longer final, and so on) and requires the suite to go red. The signature guards each have a mutant too (no check, wrong mode, legacy header accepted, re-serialised bytes, a key override outside the test environment, and so on). Two mutants survived on the first run of the earlier set: with `Failed` or `Delivered` not treated as final, the bridge still got the right answer but kept polling until the deadline. The tests now count the polls, and both are caught. CI runs both commands in the `sms-provider` job.
 
+## A real run (2026-11-10)
+
+What ran, in order:
+
+1. The gateway app was on the phone with the local server on, reached from the PC with `adb forward tcp:18080 tcp:8080`.
+2. The bridge ran on the PC with `GHL_SIGNATURE_MODE=warn` and `SIM_NUMBER=2`, behind `cloudflared tunnel --url http://127.0.0.1:8787`.
+3. In the HighLevel developer portal a private app was created in the free sandbox, with the conversation and contact scopes, a client key, a redirect URL and one Conversation Provider (type SMS, a custom provider) whose Delivery URL was the tunnel address plus `/outbound?token=...`. The module's Create button stayed disabled until the Auth section and a client key existed.
+4. The app was installed in one sandbox sub-account through its install link.
+5. A contact was created with a real mobile number, and a message was posted to `POST /conversations/messages` with the provider's id. HighLevel recorded it as `TYPE_CUSTOM_SMS` from "Phone SMS bridge".
+
+What came back:
+
+| Send | Bridge answer | Gateway | HighLevel's record |
+|---|---|---|---|
+| First, default SIM | 502 | `Failed`, `RESULT_MODEM_ERROR` on SIM 1 | `failed`, "Request failed with status code 502", a Try again link in the conversation |
+| Second, `SIM_NUMBER=2` | 200 | `Delivered` | `sent` |
+
+The conversation as HighLevel shows it, with the failed send above the delivered one:
+
+![The HighLevel conversation with two outbound texts, the first marked failed with a Try again link and the second sent](screenshots/sms-gateway-live/highlevel-conversation.png)
+
+Limits of this run: one contact, a handful of texts, one phone, sandbox data. The status stayed `sent` and not `delivered` in HighLevel because the bridge had no access token for the status call back. The install redirected the one time OAuth code to the tunnel's `/oauth` path, which the bridge does not serve, so no token was exchanged. The Delivery URL post was accepted in `warn` mode, and no signed post from HighLevel has been seen to verify yet, so `enforce` is still untried.
+
 ## How to run it
 
 Python 3.11 or newer, with `requests` and `cryptography`:
@@ -168,4 +191,4 @@ It prints a `https://<random>.trycloudflare.com` address. Put `https://<random>.
 - **Texts only.** Email deliveries get a 422, attachments are dropped, and there are no inbound texts: a reply to the phone does not reach HighLevel.
 - **Restarts.** If the bridge stops while it is polling, that message stays unreported and a replay of it is answered as a duplicate, not resent. The store file grows by one small entry per message and is never pruned.
 - **The status call is unproven.** The method, headers and body come from HighLevel's pages. The token rule (only the provider app's token may update a status) and the `Version` value have not been tried against HighLevel.
-- **Tested against stand-ins only.** The stand-ins repeat the documented behaviour and the gateway behaviour seen on 2026-11-10. The bridge has not sent a text and has not called HighLevel.
+- **One real run, not a load test.** One text went through on 2026-11-10 after a first one failed on a SIM modem error. The status call back (`PUT` message status) has only run against the stand-in, because the bridge was started without the app's access token.
