@@ -22,6 +22,13 @@ jobs:
           node tests/outbox.test.mjs
           node tests/signature.test.mjs
           node tests/workflow-auth.test.mjs
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Custom field, custom value and calendar checks, on a stand-in server (no token)
+        run: |
+          python tests/ghl_setup.test.py
+          python tests/ghl_setup_mutants.py
 
   edge:
     runs-on: ubuntu-latest

@@ -46,7 +46,7 @@ MUTANTS = [
 
 def main():
     only = [a for a in sys.argv[1:] if not a.startswith("-")]
-    base = open(TARGET, encoding="utf-8", newline="").read()
+    base = open(TARGET, encoding="utf-8").read()   # universal newlines: a CRLF checkout must not make an anchor stale
     bad = ran = 0
     for i, (name, old, new) in enumerate(MUTANTS):
         if only and not any(o.lower() in name.lower() for o in only):

@@ -21,6 +21,7 @@ run "noaa live (17 checks)"      node tests/noaa.test.mjs
 run "swdi live (23 checks)"      node tests/swdi.test.mjs
 run "geo live (31 checks)"       node tests/geo.test.mjs
 run "outbox logic (56 checks)"   node tests/outbox.test.mjs
+run "ghl setup offline (53 checks)" python tests/ghl_setup.test.py
 printf "%-38s " "published keys"
 python tests/verify_public_keys.py >/dev/null 2>&1; rc=$?
 if [ $rc -eq 0 ]; then echo PASS; elif [ $rc -eq 2 ]; then echo "SKIP (no scraped keys file: set GHL_PUBLISHED_KEYS_JSON)"; else echo FAIL; fail=1; fi
@@ -28,6 +29,10 @@ if [ $rc -eq 0 ]; then echo PASS; elif [ $rc -eq 2 ]; then echo "SKIP (no scrape
 printf "%-38s " "tenant isolation (live GHL)"
 out=$(python tests/tenant_isolation.py 2>&1); rc=$?
 if [ $rc -eq 2 ]; then echo "SKIP (no sandbox token file: set GHL_SANDBOX_PIT_FILE)"; elif echo "$out" | grep -q "ISOLATED"; then echo PASS; else echo FAIL; fail=1; fi
+
+printf "%-38s " "field, value, calendar (live GHL)"
+out=$(python tests/custom_fields_values_calendars.py 2>&1); rc=$?
+if [ $rc -eq 2 ]; then echo "SKIP (no sandbox token file: set GHL_SANDBOX_PIT_FILE)"; elif echo "$out" | grep -q "BOOKING PROVEN"; then echo PASS; else echo FAIL; fail=1; fi
 
 # Browser storage suite. Needs playwright plus a chromium binary, so it SKIPS loudly
 # rather than failing a machine that has neither installed.

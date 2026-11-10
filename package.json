@@ -13,7 +13,8 @@
     "test:browser": "node tests/outbox.browser.mjs",
     "test:postgis": "python tests/postgis.test.py",
     "test:farmlists": "python tests/farm_lists.test.py",
-    "test:farmlists:mutants": "python tests/farm_lists_mutants.py"
+    "test:farmlists:mutants": "python tests/farm_lists_mutants.py",
+    "test:ghlsetup": "python tests/ghl_setup.test.py && python tests/ghl_setup_mutants.py"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
