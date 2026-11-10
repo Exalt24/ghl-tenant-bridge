@@ -37,7 +37,7 @@
     "id": "<FUNNEL_ID>",
     "name": "Course enquiry funnel",
     "domainId": "",
-    "domainIdNote": "empty string: no domain is attached, which is why the publish dialog refused (screenshot 14)",
+    "domainIdNote": "this read back was taken before a domain was connected: the empty string is why the publish dialog refused (screenshot 14). A domain was connected and the funnel published afterwards, see section 2 of the page and screenshots 27 to 31",
     "steps": [
       {
         "id": "<STEP_1_ID>",

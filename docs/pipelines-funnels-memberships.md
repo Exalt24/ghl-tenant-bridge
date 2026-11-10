@@ -2,13 +2,13 @@
 
 A pipeline with four stages, a workflow that creates an opportunity and moves it to the next stage, a two page funnel with a form, a course with an offer, and an SMS step. All of it was built by hand in the HighLevel UI on 2026-11-10 in the free developer sandbox (sub-account `ASC Test Tenant B`), after the form and workflow page in [lead-welcome-workflow.md](lead-welcome-workflow.md). Every contact is invented: `example.com` addresses and 555 phone numbers. Nothing here is a client system.
 
-Two things did not work and are stated where they happened and again under Limits: the funnel cannot be published because the sandbox has no domain, and the SMS step is refused by the platform. The numbers in square brackets are the screenshots in `screenshots/pipelines-funnels/`.
+Two things did not work and are stated where they happened and again under Limits: a submission through the public funnel page was not completed because of a bot check, and the SMS step is refused by the platform. The funnel itself is published. It first could not be, because the sandbox had no domain, and a free `dynv6.net` subdomain fixed that the same day (section 2). The numbers in square brackets are the screenshots in `screenshots/pipelines-funnels/`.
 
 | Part | Built | Run and read back | Blocked |
 |---|---|---|---|
 | Pipeline, 4 stages | yes [01, 02] | yes [09] | no |
 | Workflow that creates and moves an opportunity | yes [03, 04, 06, 07] | yes, with a tag trigger [08, 09, 10] | the form trigger could not be run |
-| Funnel with landing page, thank you page, form, button | yes [11, 12, 13] | the pages load by their preview link [17] | publishing, and a submission through the page [14, 15, 16, 18] |
+| Funnel with landing page, thank you page, form, button | yes [11, 12, 13] | published on `https://funnel.ghl-lab-dc.dynv6.net/course-enquiry`, both pages load signed out [27, 28, 29] | a submission through the page [18, 32] |
 | Course with module, lessons, offer | yes [19, 20, 21, 22, 23] | member view opened as an admin preview [25] | payments, a real member sign in [24, 26] |
 | SMS step | yes [05] | ran, the message failed [08, 10] | delivery |
 
@@ -65,7 +65,7 @@ The opportunities API, polled every 3 seconds, showed the opportunity created in
 
 ## 2. Funnel with a landing page and a thank you page
 
-The funnel `Course enquiry funnel` has two steps, built from blank in the funnel builder. The funnel overview already says "Please add a domain in the settings to see your Funnel live!" [11]
+The funnel `Course enquiry funnel` has two steps, built from blank in the funnel builder. Before any domain was connected the funnel overview said "Please add a domain in the settings to see your Funnel live!" [11]
 
 - Step 1, `Course enquiry landing page`, path `/course-enquiry`: a headline (`Start the free Spreadsheet Basics course`), a paragraph, and the Form element pointing at `Course enquiry (test)` with its redirect set to Go to Next step. The form brings its own Submit button. [12]
 - Step 2, `Thank you page`, path `/thank-you`: a headline, a paragraph and a button `Open the course area`. The button's link target was not set. [13]
@@ -82,7 +82,7 @@ The funnel `Course enquiry funnel` has two steps, built from blank in the funnel
 
 *The thank you page.*
 
-**Publishing did not work.** Publish opens a dialog that says "At least one domain needs to be selected before publishing funnel." and "You do not have any domains yet", with Purchase Domain and Connect Domain. [14] The funnel's Domain list holds only "Please select a domain". [15] The sub-account's Domains page offers Purchase domain, Transfer-In Domain and Connect a domain, and no free default domain. [16] The API agrees: the funnel's `domainId` is an empty string. Buying a domain costs money and the sandbox owns none, so this was not pushed further.
+**Publishing first did not work.** Publish opened a dialog that says "At least one domain needs to be selected before publishing funnel." and "You do not have any domains yet", with Purchase Domain and Connect Domain. [14] The funnel's Domain list holds only "Please select a domain". [15] The sub-account's Domains page offers Purchase domain, Transfer-In Domain and Connect a domain, and no free default domain. [16] The API agrees: the funnel's `domainId` is an empty string. Buying a domain costs money and the sandbox owned none, so a free one was looked for (next part).
 
 ![Publish blocked](screenshots/pipelines-funnels/14-publish-blocked-no-domain.png)
 
@@ -96,9 +96,46 @@ The funnel `Course enquiry funnel` has two steps, built from blank in the funnel
 
 *The sub-account's Domains page. The sample picture on the right is HighLevel's own.*
 
-**What does load.** The builder shows each page's preview link, `https://sites.leadconnectorhq.com/preview/<PAGE_1_ID>` for the landing page. In a plain signed out browser it returned HTTP 200 and showed the headline, the paragraph, the four fields (First Name, Last Name, Phone, Email), the two consent boxes and the Submit button. [17] The page title was an empty string. The preview link is not a published page, and the funnel is not live.
+**A free domain, and publishing.** Nothing was bought and no card was used. Free routes were tried in order, and each stopped where a person has to prove they are human. That check was left alone every time and never worked around.
 
-**A submission through the page created nothing.** In that signed out browser the four fields were filled with an invented lead and Submit was clicked. The form cleared. [18] The browser made two `form-survey-event` posts (HTTP 201) and no form submit request. The contacts API before and after listed the same single older contact. So no contact was created through the funnel page, and the Form submitted trigger was never fired. The form's own share link was tried too: the page console printed `[Cloudflare Turnstile] Error: 600010` after Submit and again no submit request went out. That is a bot check on the form, and it was not worked around.
+- DigitalPlat FreeDomain took a GitHub sign in, then asked for a legal name, phone number and street address, and its form ends in a Cloudflare Turnstile checkbox, "Verify you are human". Stopped there.
+- FreeDNS did not load from this machine (connection timed out).
+- DuckDNS took a GitHub sign in. Adding a name failed twice with "error: reCaptcha failed, please try again." Stopped there.
+- dynv6, a free dynamic DNS service that hosts its own zones and has a full record editor, took an email and a password. Its email confirmation page showed a reCAPTCHA checkbox, "I'm not a robot", and the account owner ticked it by hand. That is the only human check that was passed in the whole run.
+
+After that the steps were these. A zone `ghl-lab-dc.dynv6.net` was created at dynv6 with no records. In the sub-account, Sites, Domains, Connect a domain, Funnel/Website/Store/Blog/Webinar, the domain `funnel.ghl-lab-dc.dynv6.net` was entered and Add record manually chosen. HighLevel asked for one record: type CNAME, host `funnel.ghl-lab-dc`, required value `sites.ludicrous.cloud`. [30] The record was added at dynv6 as name `funnel`, data `sites.ludicrous.cloud.` with a trailing dot. [31] The first save went in without the dot and dynv6 read it as relative, storing `sites.ludicrous.cloud.ghl-lab-dc.dynv6.net.`, so the record was edited. A DNS lookup against 8.8.8.8 then answered `funnel.ghl-lab-dc.dynv6.net canonical name = sites.ludicrous.cloud`.
+
+Verify records was still spinning after 12 seconds the first time, and HighLevel's own note says DNS updates can take up to 30 seconds. A later press completed in about 30 seconds. The network log shows a conflict check (`conflict: false`), a validate call that returned `state: CONNECTED`, then the domain being created and attached to the location. The funnel's Domain list then offered `funnel.ghl-lab-dc.dynv6.net`. It was selected and saved, and after a reload the settings showed it. [27] Publish was pressed once in the landing page builder. Signed out, in a fresh headless browser, `https://funnel.ghl-lab-dc.dynv6.net/course-enquiry` answered HTTP 200 over https with the landing page [28], and `https://funnel.ghl-lab-dc.dynv6.net/thank-you` answered HTTP 200 with the thank you page. [29] The funnel's own path `/course-enquiry-funnel` answered 200 with the same landing page.
+
+![Funnel domain](screenshots/pipelines-funnels/27-published-funnel-domain.png)
+
+*The funnel's Domain setting after the save, read back after a reload. The Payment mode switch on the same page was already on and was not touched.*
+
+![HighLevel record values](screenshots/pipelines-funnels/30-domain-connect-cname-values.png)
+
+*The record HighLevel asks for. The Host box is cut off by the dialog width: it reads `funnel.ghl-lab-dc`, and the value reads `sites.ludicrous.cloud`.*
+
+![dynv6 record](screenshots/pipelines-funnels/31-dynv6-cname-record.png)
+
+*The CNAME at dynv6 after the edit.*
+
+![Published landing page](screenshots/pipelines-funnels/28-published-landing-page.png)
+
+*The landing page on the published address, signed out.*
+
+![Published thank you page](screenshots/pipelines-funnels/29-published-thank-you.png)
+
+*The thank you page on the published address. It was opened by its address. It was not reached through the form (see below).*
+
+**Earlier, with the preview link.** The builder shows each page's preview link, `https://sites.leadconnectorhq.com/preview/<PAGE_1_ID>` for the landing page. In a plain signed out browser it returned HTTP 200 and showed the headline, the paragraph, the four fields (First Name, Last Name, Phone, Email), the two consent boxes and the Submit button. [17] The page title was an empty string. The preview link is not a published page. That was true when it was checked, before the domain was connected.
+
+**A submission through the page created nothing.** Before publishing, in that signed out browser the four fields were filled with an invented lead and Submit was clicked. The form cleared. [18] The browser made two `form-survey-event` posts (HTTP 201) and no form submit request. The contacts API before and after listed the same single older contact. So no contact was created through the funnel page, and the Form submitted trigger was never fired. The form's own share link was tried too: the page console printed `[Cloudflare Turnstile] Error: 600010` after Submit and again no submit request went out. That is a bot check on the form, and it was not worked around.
+
+**The same on the published address.** In a fresh headless browser the page console printed `[Cloudflare Turnstile] Error: 600010.` as soon as the page loaded and again after Submit. The first fill used an invented phone number the page's own check refused ("Invalid phone number"), so the phone was changed to `+1 (202) 555-0100`. The fields were then filled with `Test`, `Lead` and `test@example.com`, and Submit was pressed. The page did not move to the thank you page: the URL stayed on `/course-enquiry` and the fields stayed filled. [32] One run logged a request to `forms/submit` and no response was read from it. The sub-account's Contacts list afterwards held five contacts, none of them `Test Lead`. So no contact was created through the published funnel by this browser, and the redirect from the landing page to the thank you page was not seen working. A person submitting the form in an ordinary browser is still the missing step.
+
+![Submit on the published page](screenshots/pipelines-funnels/32-landing-submit-blocked-by-turnstile.png)
+
+*The published landing page after Submit with a filled form: no move to the thank you page.*
 
 ![Preview page](screenshots/pipelines-funnels/17-public-preview-page.png)
 
@@ -169,8 +206,8 @@ What the sandbox did: the execution log marks the SMS step Executed [08], and th
 
 ## Limits, with the exact messages
 
-- **No domain, so no published funnel.** Publish dialog: "At least one domain needs to be selected before publishing funnel." and "You do not have any domains yet". Funnel overview: "Please add a domain in the settings to see your Funnel live!" A domain has to be bought or connected, which costs money. [11, 14, 15, 16]
-- **No funnel submission.** The preview page does not create contacts, and the form's share link raises a Cloudflare Turnstile check (`Error: 600010`) in an automated browser that was not worked around. A person submitting it by hand is the missing step. The Form submitted trigger is built and was not fired. [17, 18]
+- **The domain is a free one, not a bought one.** The funnel runs on `funnel.ghl-lab-dc.dynv6.net`, a subdomain of a free dynv6 zone. Before it, publish said "At least one domain needs to be selected before publishing funnel." and "You do not have any domains yet". [11, 14, 15, 16] Three other free routes stopped at a human check or did not load, so a free dynamic DNS name was used and not a registered domain of its own. It is a lab address and not one a business would put on a campaign.
+- **No funnel submission.** The preview page and the published page do not create contacts from an automated browser, and the form raises a Cloudflare Turnstile error (`Error: 600010`) that was not worked around. A person submitting it by hand is the missing step. The Form submitted trigger is built and was not fired. [17, 18, 32]
 - **SMS is refused.** `Trial mode not enabled for this agency`, message status `failed`. The execution log still says Executed. [08, 10]
 - **Email is blocked** from a sandbox, as found on the earlier page, so no email step was added here.
 - **No payments.** The offer is free and the offer page says to connect a processor such as Stripe. [24]
