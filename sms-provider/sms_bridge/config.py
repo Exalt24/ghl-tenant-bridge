@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from . import signature
+
 
 class ConfigError(Exception):
     pass
@@ -25,6 +27,11 @@ class Config:
     store_path: str = "sms_store.json"
     poll_interval: float = 1.0
     poll_deadline: float = 60.0
+    ghl_signature_mode: str = "off"
+    ghl_public_key_b64: str = signature.GHL_ED25519_SPKI_B64
+
+
+SIGNATURE_MODES = ("off", "warn", "enforce")
 
 
 def _number(env: dict, name: str, cast, default):
@@ -47,6 +54,19 @@ def from_env(env: dict | None = None) -> Config:
         raise ConfigError("missing environment variables: " + ", ".join(missing))
     if len(env["BRIDGE_TOKEN"]) < 16:
         raise ConfigError("BRIDGE_TOKEN must be at least 16 characters")
+    mode = env.get("GHL_SIGNATURE_MODE", "").strip().lower() or Config.ghl_signature_mode
+    if mode not in SIGNATURE_MODES:
+        raise ConfigError("GHL_SIGNATURE_MODE must be one of: " + ", ".join(SIGNATURE_MODES))
+    # The key override exists so a test can sign with a key it holds. It is honoured only when BRIDGE_ENV is exactly "test",
+    # the same rule the Worker (ENVIRONMENT) and the relay (RELAY_ENV) apply, so a stray variable cannot swap the key in use.
+    key = signature.GHL_ED25519_SPKI_B64
+    override = env.get("GHL_PUBLIC_KEY_B64", "").strip()
+    if override and env.get("BRIDGE_ENV", "").strip() == "test":
+        key = override
+    try:
+        signature.load_key(key)
+    except ValueError as exc:
+        raise ConfigError("GHL_PUBLIC_KEY_B64 is not an Ed25519 public key: %s" % exc) from None
     return Config(
         bridge_token=env["BRIDGE_TOKEN"],
         gateway_url=env["GATEWAY_URL"].strip().rstrip("/"),
@@ -61,4 +81,6 @@ def from_env(env: dict | None = None) -> Config:
         store_path=env.get("STORE_PATH", "").strip() or Config.store_path,
         poll_interval=_number(env, "POLL_INTERVAL", float, Config.poll_interval),
         poll_deadline=_number(env, "POLL_DEADLINE", float, Config.poll_deadline),
+        ghl_signature_mode=mode,
+        ghl_public_key_b64=key,
     )

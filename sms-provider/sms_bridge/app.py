@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import config as config_mod
+from . import signature
 from .gateway import Gateway, GatewayRefused, GatewayUnreachable
 from .highlevel import HighLevelClient, HighLevelError, NoReporter
 from .store import Store
@@ -74,6 +75,7 @@ class Bridge:
 
     def __init__(self, cfg, store, gateway, reporter):
         self.cfg = cfg
+        self.ghl_key = signature.load_key(cfg.ghl_public_key_b64) if cfg.ghl_signature_mode != "off" else None
         self.store = store
         self.gateway = gateway
         self.reporter = reporter
@@ -181,6 +183,13 @@ def make_handler(bridge: Bridge):
                 return self._send(413, {"error": "body is too large"})
             raw = self.rfile.read(length)
             self.body_read = True
+            if bridge.cfg.ghl_signature_mode != "off":
+                # Over the bytes as received, before anything parses them: nothing below runs on an unproven body in enforce mode.
+                verdict = signature.check(self.headers, raw, bridge.ghl_key)
+                if verdict != signature.OK:
+                    if bridge.cfg.ghl_signature_mode == "enforce":
+                        return self._send(401, {"error": "bad or missing signature"})
+                    log.warning("signature check failed (%s); accepted because GHL_SIGNATURE_MODE is warn", verdict)
             try:
                 msg = validate(raw)
             except Rejected as exc:

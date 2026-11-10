@@ -12,7 +12,7 @@ HighLevel  <--PUT .../messages/{id}/status--  bridge  <--GET /message/{id} (poll
 ```
 
 1. HighLevel posts each outbound message to the Delivery URL.
-2. The bridge checks the secret, checks the body, and records the `messageId` in a small JSON file.
+2. The bridge checks the secret, then (when `GHL_SIGNATURE_MODE` is `warn` or `enforce`) the Ed25519 signature over the raw body, then checks the body, and records the `messageId` in a small JSON file.
 3. It posts the text to the gateway and answers HighLevel `200` as soon as the gateway has queued it.
 4. In the background it polls `GET /message/{id}` until the state is `Delivered` or `Failed`, or 60 seconds pass.
 5. It tells HighLevel the result with the update message status call.
@@ -23,7 +23,7 @@ The answers to HighLevel:
 |---|---|
 | 200 | The text was queued on the gateway, or the `messageId` was seen before (`"duplicate": true`, nothing is sent). |
 | 400 | The body is not a JSON object, or `messageId`, `phone` (E.164, like `+15864603685`) or `message` is missing or bad, or the text is over 1600 characters. |
-| 401 | The secret is missing or wrong. This is checked before the body is read. |
+| 401 | The secret is missing or wrong (checked before the body is read), or `GHL_SIGNATURE_MODE=enforce` and `X-GHL-Signature` is missing, not valid or does not match the body. |
 | 413 | The body is over 64 KB. |
 | 422 | `type` is not `SMS`. Email deliveries are refused and nothing is sent. |
 | 502 | The gateway refused the text or did not answer. HighLevel is told `failed`. |
@@ -57,7 +57,19 @@ Read on 2026-11-10 from these pages:
 
 There is no `conversationProviderId` in the documented body, so the bridge does not read one. The pages do not say what answer HighLevel expects from the Delivery URL, so the bridge answers `200` with a small JSON body.
 
-**How the call is authenticated.** The pages say Delivery URL posts carry `X-GHL-Signature` (Ed25519, over the raw body) and no other signature header. They describe no shared secret and no way to add a custom header. The Delivery URL is a string you type, so the bridge takes its secret as a query parameter: `https://<host>/outbound?token=<BRIDGE_TOKEN>`. It also accepts an `X-Bridge-Token` header for a caller that can set one (a reverse proxy, a test). The secret is compared in constant time and the request line is never logged, because it holds the secret.
+**How the call is authenticated.** The pages say Delivery URL posts carry `X-GHL-Signature` (Ed25519, over the body) and no other signature header. They describe no shared secret and no way to add a custom header. The Delivery URL is a string you type, so the bridge takes its secret as a query parameter: `https://<host>/outbound?token=<BRIDGE_TOKEN>`. It also accepts an `X-Bridge-Token` header for a caller that can set one (a reverse proxy, a test). The secret is compared in constant time and the request line is never logged, because it holds the secret. On top of that the bridge can verify the signature, described next.
+
+**What it verifies.** With `GHL_SIGNATURE_MODE` set to `warn` or `enforce`, the bridge checks `X-GHL-Signature` over the exact bytes of the request body, before the body is parsed. It uses the `cryptography` package's Ed25519 verification (the same package and the same published key as the relay in [`relay/`](../relay/) and the Worker in [`edge/`](../edge/)), so there is no curve code in the bridge and the comparison is constant time. The legacy `X-WH-Signature` header (RSA) is never accepted: a post that carries only that header counts as unsigned, and a legacy header beside a wrong `X-GHL-Signature` does not rescue it. A header that is missing, empty, not base64 (HighLevel sometimes sends the literal `N/A`), truncated or from another key is a mismatch. The check runs after the secret check and before the body is validated, so in `enforce` mode an unsigned body is a `401` whatever it contains.
+
+The public key is the one HighLevel publishes in the [Webhook Integration Guide](https://marketplace.gohighlevel.com/docs/webhook/WebhookIntegrationGuide) (read on 2026-11-10; the page has no separate authentication page, its Security section is the source): `MCowBQYDK2VwAyEAi2HR1srL4o18O8BRa7gVJY7G7bupbN3H9AwJrHCDiOg=`, the base64 of the key's SPKI DER. The page states that legacy `X-WH-Signature` "will be deprecated on September 1, 2026" and that the current header is the Ed25519 one. It says "we sign the webhook body with our private key" but not whether that means the received bytes or a re-serialised body, and its sample code verifies `JSON.stringify(req.body)`. The bridge verifies the received bytes only, as the Worker does. The relay also tries the compact re-serialisation, which this bridge does not.
+
+| `GHL_SIGNATURE_MODE` | A good signature | A missing or wrong signature |
+|---|---|---|
+| `off` (default) | Accepted | Accepted, the header is not read. Today's token only behaviour. |
+| `warn` | Accepted | Accepted, and one warning line in the log naming the reason (no header, only the legacy header, or no match). The log never holds the signature, the secret or the text. |
+| `enforce` | Accepted | `401`, nothing is sent and nothing is stored, so the same `messageId` can still arrive correctly signed later. |
+
+Start in `warn`, look at the log for the first real delivery, and move to `enforce` only when a real post verifies. Because the signed bytes are not documented and no real post has been seen, `enforce` could refuse every real post if HighLevel signs something other than the bytes it sends.
 
 **The status call.** The method is `PUT`, not `POST`:
 
@@ -87,21 +99,21 @@ How the final state is mapped:
 
 `sms-provider/tests/` runs the bridge on a local port and talks to it over real HTTP. A stand-in gateway and a stand-in HighLevel run beside it, each on its own port. They are written from the documentation above and check what the real ones are documented to check: basic auth on the gateway, a bearer token, a `Version` header, the `PUT` method, the status values and the shape of the `error` object on the HighLevel side. Each stand-in has a positive control test, so a refusal in a later test is a refusal for the reason named.
 
-The suite covers the happy path, a replay (also while the first is still in flight, and eight at once), a bad or missing secret in the query and in the header, a body that is not JSON, bad fields, an Email delivery, an oversized body, the gateway answering 401, the `Failed` state with a modem error, a gateway that never finishes, a poll that fails once, and the status call being refused by HighLevel. It also checks that no secret reaches the log, the store file or a configuration repr.
+The signature tests (`tests/test_signature.py`) sign requests with a key pair generated by the test run and cover a good signature, a flipped byte in the body, another key, no header, the legacy header only, a legacy header beside a wrong signature, `N/A`, an empty and a truncated signature, and a signature made over the re-serialised body, each in `off`, `warn` and `enforce`, plus the order of the checks and the configuration rules. The suite covers the happy path, a replay (also while the first is still in flight, and eight at once), a bad or missing secret in the query and in the header, a body that is not JSON, bad fields, an Email delivery, an oversized body, the gateway answering 401, the `Failed` state with a modem error, a gateway that never finishes, a poll that fails once, and the status call being refused by HighLevel. It also checks that no secret reaches the log, the store file or a configuration repr.
 
 Run on 2026-11-10:
 
 ```
 cd sms-provider
-python -m pytest -q                # 70 passed
-python tests/mutants.py            # SMS BRIDGE MUTANTS: 59 of 59 caught, 0 problem(s)
+python -m pytest -q                # 119 passed
+python tests/mutants.py            # SMS BRIDGE MUTANTS: 88 of 88 caught, 0 problem(s)
 ```
 
-The mutation check copies the package, breaks one guard per mutant (a removed secret check, a dropped basic auth header, `PUT` changed to `POST`, `Failed` no longer final, and so on) and requires the suite to go red. Two mutants survived on the first run: with `Failed` or `Delivered` not treated as final, the bridge still got the right answer but kept polling until the deadline. The tests now count the polls, and both are caught. CI runs both commands in the `sms-provider` job.
+The mutation check copies the package, breaks one guard per mutant (a removed secret check, a dropped basic auth header, `PUT` changed to `POST`, `Failed` no longer final, and so on) and requires the suite to go red. The signature guards each have a mutant too (no check, wrong mode, legacy header accepted, re-serialised bytes, a key override outside the test environment, and so on). Two mutants survived on the first run of the earlier set: with `Failed` or `Delivered` not treated as final, the bridge still got the right answer but kept polling until the deadline. The tests now count the polls, and both are caught. CI runs both commands in the `sms-provider` job.
 
 ## How to run it
 
-Python 3.11 or newer, with `requests`:
+Python 3.11 or newer, with `requests` and `cryptography`:
 
 ```
 cd sms-provider
@@ -120,6 +132,8 @@ Settings are environment variables:
 | `HIGHLEVEL_ACCESS_TOKEN` | no | Token for the status call. Without it texts still go out, and the bridge only logs and stores the result. |
 | `HIGHLEVEL_API_VERSION` | no | The `Version` header for the status call. Default `2021-04-15`. |
 | `HIGHLEVEL_API_BASE` | no | Default `https://services.leadconnectorhq.com`. |
+| `GHL_SIGNATURE_MODE` | no | `off`, `warn` or `enforce`, see above. Default `off`. Anything else stops the bridge at start. |
+| `GHL_PUBLIC_KEY_B64` | no | Replaces the published key, and is read only when `BRIDGE_ENV` is exactly `test` (the same rule as the Worker and the relay). Elsewhere it is ignored. A value that is not an Ed25519 public key stops the bridge at start. |
 | `BRIDGE_HOST`, `BRIDGE_PORT` | no | Default `127.0.0.1` and `8787`. |
 | `STORE_PATH` | no | The replay file. Default `sms_store.json` in the working directory. |
 | `POLL_INTERVAL`, `POLL_DEADLINE` | no | Seconds between polls and the total wait. Default 1 and 60. |
@@ -150,7 +164,7 @@ It prints a `https://<random>.trycloudflare.com` address. Put `https://<random>.
 - **Delivery depends on the carrier.** `Delivered` needs a delivery report from the carrier. A text can be sent and never confirmed, and it is then reported `failed` after 60 seconds even if it arrives later. Do not resend on that alone.
 - **Not for bulk or production.** One phone, one SIM, one message queue, polled one text at a time, a tunnel that restarts. Carriers and the SMS rules for business texting (registration, opt out handling) are not handled here.
 - **Not a replacement for a registered provider.** It gets a test text out of a sandbox. It does not give a registered sender, throughput or support.
-- **No signature check.** HighLevel signs Delivery URL posts with Ed25519, and this bridge does not verify that signature, since it uses the standard library and `requests` only. The secret in the URL is the whole check. That is weaker than the signature, and a leaked URL lets anyone send.
+- **The signature check was tested only with a locally generated key pair.** No post signed by HighLevel has reached the bridge, and HighLevel's private key is not ours, so it is not known that a real post verifies over the received bytes. The default is `off`, where the secret in the URL is the whole check and a leaked URL lets anyone send.
 - **Texts only.** Email deliveries get a 422, attachments are dropped, and there are no inbound texts: a reply to the phone does not reach HighLevel.
 - **Restarts.** If the bridge stops while it is polling, that message stays unreported and a replay of it is answered as a duplicate, not resent. The store file grows by one small entry per message and is never pruned.
 - **The status call is unproven.** The method, headers and body come from HighLevel's pages. The token rule (only the provider app's token may update a status) and the `Version` value have not been tried against HighLevel.

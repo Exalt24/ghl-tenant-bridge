@@ -59,7 +59,7 @@ Source: [HighLevel Webhook Integration Guide](https://marketplace.gohighlevel.co
 | `relay/` | A Python and Flask relay: takes a GoHighLevel lead delivery and fans it out to Slack, a Make webhook, Meta Conversions API and Google Sheets, at least once, with a stored outcome per sink, on SQLite or Postgres. It also pulls ad spend from Meta Insights and Windsor.ai, receives Fathom webhooks and reconciles a payments CSV. Built against the vendors' documented contracts and tested with local stand-in servers written from their saved pages, plus one check of the Google Sheets calls with my own sign-in. See [relay/README.md](relay/README.md) and the runnable [cutover demo](relay/docs/demo.md). |
 | `infra/` | Terraform for the relay on AWS Fargate and RDS Postgres. Checked with an offline plan, 28 guard test runs and 49 mutants. See [infra/README.md](infra/README.md). |
 | `graphql/` | Hasura GraphQL Engine over the PostGIS schema, with a per-organisation permission rule and a smoke test against real containers. See [graphql/README.md](graphql/README.md). |
-| `sms-provider/` | A Python bridge that sends a HighLevel custom provider's texts through an Android SMS gateway app. Tested on stand-ins only. See [docs/sms-through-a-gateway.md](docs/sms-through-a-gateway.md). |
+| `sms-provider/` | Sends a HighLevel custom provider's texts through an Android SMS gateway, with an optional signature check. Stand-ins only. See [docs/sms-through-a-gateway.md](docs/sms-through-a-gateway.md). |
 | `docs/` | `INTEGRATION_CONTRACT.md` and `DEMO_PORTABILITY.md`. |
 
 ---

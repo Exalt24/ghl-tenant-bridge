@@ -4,8 +4,12 @@ import json
 import threading
 import time
 
+import base64
+
 import pytest
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sms_bridge import app
 from sms_bridge.config import Config
@@ -15,6 +19,22 @@ from sms_bridge.highlevel import HighLevelClient
 from .fakes import FakeGateway, FakeHighLevel
 
 BRIDGE_TOKEN = "bridge-secret-0123456789"
+
+
+class KeyPair:
+    """A key pair made here, so a test can sign. It is not HighLevel's key; HighLevel's private half is not ours."""
+
+    def __init__(self):
+        self.private = Ed25519PrivateKey.generate()
+        der = self.private.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+        self.spki_b64 = base64.b64encode(der).decode()
+
+    def sign(self, raw: bytes) -> str:
+        return base64.b64encode(self.private.sign(raw)).decode()
+
+
+TEST_KEY = KeyPair()
+OTHER_KEY = KeyPair()
 
 
 def wait_for(cond, timeout=5.0):
@@ -34,13 +54,14 @@ def sms(**over):
 
 
 class Rig:
-    def __init__(self, tmp_path, deadline=0.6):
+    def __init__(self, tmp_path, deadline=0.6, mode="off"):
         self.gw = FakeGateway()
         self.hl = FakeHighLevel()
         self.cfg = Config(bridge_token=BRIDGE_TOKEN, gateway_url=self.gw.url, gateway_user=self.gw.user,
                           gateway_password=self.gw.password, sim_number=2, highlevel_token=self.hl.token,
                           highlevel_base=self.hl.url, store_path=str(tmp_path / "store.json"),
-                          poll_interval=0.02, poll_deadline=deadline)
+                          poll_interval=0.02, poll_deadline=deadline,
+                          ghl_signature_mode=mode, ghl_public_key_b64=TEST_KEY.spki_b64)
         gateway = Gateway(self.cfg.gateway_url, self.cfg.gateway_user, self.cfg.gateway_password, self.cfg.sim_number, timeout=0.5)
         reporter = HighLevelClient(self.hl.token, self.hl.url, self.cfg.highlevel_version, timeout=2)
         self.bridge = app.build(self.cfg, gateway, reporter)
@@ -74,5 +95,28 @@ class Rig:
 @pytest.fixture
 def rig(tmp_path):
     r = Rig(tmp_path)
+    yield r
+    r.close()
+
+
+@pytest.fixture(params=["warn", "enforce"])
+def checked_rig(request, tmp_path):
+    """A bridge that verifies the signature, in each mode that does."""
+    r = Rig(tmp_path, mode=request.param)
+    r.mode = request.param
+    yield r
+    r.close()
+
+
+@pytest.fixture
+def enforce_rig(tmp_path):
+    r = Rig(tmp_path, mode="enforce")
+    yield r
+    r.close()
+
+
+@pytest.fixture
+def warn_rig(tmp_path):
+    r = Rig(tmp_path, mode="warn")
     yield r
     r.close()
