@@ -1080,7 +1080,7 @@ def main() -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--check", action="store_true", help="only verify every pattern occurs exactly once")
     ap.add_argument("--only", default="")
-    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--jobs", type=int, default=max(2, (os.cpu_count() or 4) // 2))
     ap.add_argument("--shard", default="1/1", help="i/n: run every n-th mutant starting at i, so CI can split the list")
     ap.add_argument("--no-baseline", action="store_true", help="skip the unmutated runs (CI has just run the whole suite)")
     args = ap.parse_args()
